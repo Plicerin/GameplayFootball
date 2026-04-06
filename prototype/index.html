@@ -1,0 +1,2028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>11v11 Pixel Soccer – Prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; display: flex; flex-direction: column; align-items: center; font-family: 'Courier New', monospace; color: #fff; }
+  h1 { margin: 12px 0 4px; font-size: 18px; letter-spacing: 2px; text-transform: uppercase; }
+  #controls { display: flex; gap: 12px; margin-bottom: 8px; align-items: center; font-size: 12px; }
+  #controls button { background: #334; color: #fff; border: 1px solid #556; padding: 4px 12px; cursor: pointer; font-family: inherit; }
+  #controls button:hover { background: #445; }
+  #controls select { background: #223; color: #fff; border: 1px solid #556; padding: 3px 6px; font-family: inherit; }
+  canvas { border: 2px solid #334; image-rendering: pixelated; transform: perspective(1200px) rotateX(30deg); transform-origin: center bottom; }
+  #scoreboard { display: flex; gap: 24px; margin: 6px 0; font-size: 14px; letter-spacing: 1px; }
+  .team-score { padding: 2px 10px; border-radius: 3px; }
+  #info { font-size: 11px; color: #889; margin-top: 4px; }
+  #telemetry { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; width: 960px; }
+  #telemetry .panel { background: #111; border: 1px solid #333; padding: 6px 10px; border-radius: 4px; flex: 1; }
+  #telemetry .panel h3 { font-size: 11px; margin-bottom: 4px; letter-spacing: 1px; color: #aaa; }
+  #telemetry table { width: 100%; border-collapse: collapse; }
+  #telemetry td { padding: 1px 4px; }
+  #telemetry td:first-child { color: #888; }
+  #telemetry .red { color: #f66; }
+  #telemetry .blue { color: #68f; }
+  #eventLog { background: #111; border: 1px solid #333; padding: 6px 10px; border-radius: 4px; width: 960px; margin-top: 4px; max-height: 200px; overflow-y: auto; font-size: 8px; line-height: 1.3; }
+  #eventLog .ev-red { color: #f88; }
+  #eventLog .ev-blue { color: #8af; }
+  #eventLog .ev-time { color: #666; margin-right: 6px; }
+  #eventLog .ev-action { color: #cc0; }
+</style>
+</head>
+<body>
+<h1>Pixel Soccer League – 11v11 Prototype</h1>
+<div id="scoreboard">
+  <span class="team-score" id="scoreA" style="background:#dd0000">RED 0</span>
+  <span style="color:#667">vs</span>
+  <span class="team-score" id="scoreB" style="background:#0044dd">BLUE 0</span>
+</div>
+<div id="controls">
+  <label>Formation A: <select id="formA"><option>4-4-2</option><option>4-3-3</option><option selected>4-2-3-1</option><option>3-5-2</option><option>3-4-3</option></select></label>
+  <label>Formation B: <select id="formB"><option selected>4-4-2</option><option>4-3-3</option><option>4-2-3-1</option><option>3-5-2</option><option>3-4-3</option></select></label>
+  <label>Speed: <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></label>
+  <button id="btnPause">⏸ Pause</button>
+  <button id="btnReset">↻ Reset</button>
+</div>
+<canvas id="pitch" width="960" height="620"></canvas>
+<div id="info">AI: Force-field positioning (off-ball) + Utility AI (on-ball) · Press <b>D</b> to toggle debug overlay</div>
+<div id="telemetry">
+  <div class="panel">
+    <h3>RED STATS</h3>
+    <table>
+      <tr><td>Passes</td><td class="red" id="t-redPass">0</td><td>Shots</td><td class="red" id="t-redShot">0</td></tr>
+      <tr><td>Clears</td><td class="red" id="t-redClear">0</td><td>Tackles won</td><td class="red" id="t-redTackle">0</td></tr>
+      <tr><td>Possession</td><td class="red" id="t-redPoss">50%</td><td>Avg hold</td><td class="red" id="t-redHold">0f</td></tr>
+    </table>
+  </div>
+  <div class="panel">
+    <h3>BLUE STATS</h3>
+    <table>
+      <tr><td>Passes</td><td class="blue" id="t-bluePass">0</td><td>Shots</td><td class="blue" id="t-blueShot">0</td></tr>
+      <tr><td>Clears</td><td class="blue" id="t-blueClear">0</td><td>Tackles won</td><td class="blue" id="t-blueTackle">0</td></tr>
+      <tr><td>Possession</td><td class="blue" id="t-bluePoss">50%</td><td>Avg hold</td><td class="blue" id="t-blueHold">0f</td></tr>
+    </table>
+  </div>
+  <div class="panel">
+    <h3>BALL CARRIER</h3>
+    <table>
+      <tr><td>Who</td><td id="t-carrier" colspan="3">-</td></tr>
+      <tr><td>Action</td><td id="t-action" colspan="3">-</td></tr>
+      <tr><td>Scores</td><td id="t-scores" colspan="3" style="font-size:9px">-</td></tr>
+    </table>
+  </div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;width:960px;margin-top:4px">
+  <button id="btnCopyTelem" style="padding:3px 10px;font-size:11px;cursor:pointer;background:#222;color:#ccc;border:1px solid #555;border-radius:3px">📋 Copy Telemetry</button>
+</div>
+<div id="eventLog"><b style="color:#666">EVENT LOG</b></div>
+
+<script>
+// ============================================================
+// 11v11 Pixel Soccer Prototype
+// Combines: PSL pixel-art sprites + MLS kits, GameplayFootball
+// force-field AI positioning, PSL tactical positioning
+// ============================================================
+
+const canvas = document.getElementById('pitch');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// --- Pitch dimensions (in "meters", mapped to pixels) ---
+const PITCH = { w: 105, h: 68 };
+const SCALE_X = (W - 40) / PITCH.w;
+const SCALE_Y = (H - 40) / PITCH.h;
+const OX = 20, OY = 20; // origin offset
+
+function toScreen(mx, my) {
+  return [OX + mx * SCALE_X, OY + my * SCALE_Y];
+}
+
+// --- Team colors ---
+const TEAM_A = { shirt: '#dd0000', pants: '#dd0000', hair: '#dd0000', skin: '#dd0000', name: 'RED', keeper: '#ff6666', keeperPants: '#ff6666' };
+const TEAM_B = { shirt: '#0044dd', pants: '#0044dd', hair: '#0044dd', skin: '#0044dd', name: 'BLUE', keeper: '#6688ff', keeperPants: '#6688ff' };
+
+// --- PSL Sprite Patterns (20×16, from gameEngine.ts PLAYER_PATTERNS / PLAYER_IDLE_PATTERNS) ---
+// Characters: 0=transparent, H=hair, S=shirt, P=pants, 1=auto (hair top, pants bottom, skin mid), V=visor/glove
+const PSL_IDLE = [
+  '00000000001111110000',
+  '00000000001110000000',
+  '0000000011H1111H0000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000PPPPP0000000',
+  '00000000PPPPP0000000',
+  '00000000PPPPP0000000',
+  '00000000111110000000',
+  '00011111111110000000',
+  '00011100111000000000',
+  '00011100111000000000',
+  '00000000111000000000',
+  '00000000111110000000',
+];
+const PSL_RUN1 = [
+  '00000000001111110000',
+  '00000000001110000000',
+  '0000011111H1111P0000',
+  '00011111111110000000',
+  '00011100111110000000',
+  '00011100111111111111',
+  '00000000SSSSS0000000',
+  '00000000PPPPP0000000',
+  '00000000PPPPP0000000',
+  '00000PPPPPPPPPPPPPPP',
+  '00000111100000000111',
+  '00011111100000011100',
+  '00011100000000011100',
+  '01111100000000000000',
+  '01110000000000000000',
+  '01110000000000000000',
+];
+const PSL_RUN2 = [
+  '00000000001111110000',
+  '00000000001110000000',
+  '0111111111H1111P0000',
+  '01110000111110000000',
+  '01110000111111111111',
+  '00000000111110000000',
+  '00000000SSSSS0000000',
+  '00000000PPPPP0000000',
+  '00000PPPPPPPP0000000',
+  '00000PPPPPPPPPPPPPPP',
+  '00000111100000000111',
+  '00011111100000000111',
+  '00011100000000000111',
+  '01111100000000000000',
+  '01110000000000000000',
+  '00000000000000000000',
+];
+const PSL_RUN3 = [
+  '00000000000111111000',
+  '00000000000111000000',
+  '000000011111111HH000',
+  '00001111111111100000',
+  '00111111111111100000',
+  '00111001111111111000',
+  '0011100SSSSS00000000',
+  '0000000PPPPP00000000',
+  '0000000PPPPPPPP00000',
+  '0000PPPPPPPPPPPPPPP0',
+  '000011100000000P1110',
+  '00001110000011111110',
+  '00001110000011100000',
+  '00111000000011100000',
+  '00111000000000000000',
+  '00111000000000000000',
+];
+const PSL_KEEPER_IDLE = [
+  '00000000001111110000',
+  '00000000001110000000',
+  '0000000011H1111H0000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000PPPPP0000000',
+  '00000000PPVVS0000000',
+  '00000000PPVVP0000000',
+  '00000000111110000000',
+  '00011111111110000000',
+  '00011100111000000000',
+  '00011100111000000000',
+  '00000000111000000000',
+  '00000000111110000000',
+];
+const PSL_KEEPER_RUN = [
+  '00000000001111110000',
+  '00000000001110000000',
+  '0000011111H1111H0000',
+  '00011111111110000000',
+  '00011100111110000000',
+  '000VVV001111111111VV',
+  '00000000SSSSS0000000',
+  '00000000PPPPP0000000',
+  '00000000PPPPP0000000',
+  '00000PPPPPPPPPPPPPPP',
+  '00000111100000000111',
+  '00011111100000011100',
+  '00011100000000011100',
+  '01111100000000000000',
+  '01110000000000000000',
+  '01110000000000000000',
+];
+
+function drawPSLSprite(cx, cy, pattern, teamColors, facing, scale) {
+  const ps = 1.1 * scale; // pixel size
+  const rows = pattern.length;
+  const cols = pattern[0].length;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const ch = pattern[r].charAt(c);
+      if (ch === '0') continue;
+      let color;
+      if (ch === 'H') color = teamColors.hair;
+      else if (ch === 'S') color = teamColors.shirt;
+      else if (ch === 'P') color = teamColors.pants;
+      else if (ch === 'V') color = '#7fff00'; // gloves
+      else if (ch === '1') {
+        if (r < 2) color = teamColors.hair;
+        else if (r === 2 && c > 10 && c < 15) color = teamColors.hair;
+        else if (r > 9) color = teamColors.pants;
+        else color = teamColors.skin;
+      } else {
+        color = teamColors.skin;
+      }
+      const fc = facing < 0 ? (cols - 1 - c) : c;
+      ctx.fillStyle = color;
+      ctx.fillRect(
+        cx + (fc - cols / 2) * ps,
+        cy + (r - rows) * ps,
+        ps, ps
+      );
+    }
+  }
+}
+
+// --- Formation definitions ---
+// Mapped from PSL's 0-120 yard coordinate space to our 0-105m pitch
+// dx = distance from own goal line in meters (0=goal, 105=opp goal)
+// dy = lateral offset from center in meters (0=center)
+// PSL mapping: psl_x/120 * 105 = our dx, psl_z/80 * 68 = our dy
+const FORMATIONS = {
+  '4-4-2': [
+    { role: 'LB',  dx: 19, dy: -22 },
+    { role: 'CB',  dx: 17, dy: -7 },
+    { role: 'CB',  dx: 17, dy: 7 },
+    { role: 'RB',  dx: 19, dy: 22 },
+    { role: 'LM',  dx: 38, dy: -24 },
+    { role: 'CM',  dx: 35, dy: -8 },
+    { role: 'CM',  dx: 35, dy: 8 },
+    { role: 'RM',  dx: 38, dy: 24 },
+    { role: 'ST',  dx: 66, dy: -9 },
+    { role: 'ST',  dx: 66, dy: 9 },
+  ],
+  '4-3-3': [
+    { role: 'LB',  dx: 19, dy: -22 },
+    { role: 'CB',  dx: 17, dy: -7 },
+    { role: 'CB',  dx: 17, dy: 7 },
+    { role: 'RB',  dx: 19, dy: 22 },
+    { role: 'CM',  dx: 44, dy: -10 },
+    { role: 'CM',  dx: 41, dy: 0 },
+    { role: 'CM',  dx: 44, dy: 10 },
+    { role: 'LW',  dx: 63, dy: -24 },
+    { role: 'ST',  dx: 66, dy: 0 },
+    { role: 'RW',  dx: 63, dy: 24 },
+  ],
+  '4-2-3-1': [
+    { role: 'LB',  dx: 19, dy: -22 },
+    { role: 'CB',  dx: 17, dy: -7 },
+    { role: 'CB',  dx: 17, dy: 7 },
+    { role: 'RB',  dx: 19, dy: 22 },
+    { role: 'DM',  dx: 35, dy: -8 },
+    { role: 'DM',  dx: 35, dy: 8 },
+    { role: 'LW',  dx: 56, dy: -22 },
+    { role: 'AM',  dx: 53, dy: 0 },
+    { role: 'RW',  dx: 56, dy: 22 },
+    { role: 'ST',  dx: 66, dy: 0 },
+  ],
+  '3-5-2': [
+    { role: 'CB',  dx: 17, dy: -14 },
+    { role: 'CB',  dx: 15, dy: 0 },
+    { role: 'CB',  dx: 17, dy: 14 },
+    { role: 'LM',  dx: 38, dy: -26 },
+    { role: 'CM',  dx: 35, dy: -9 },
+    { role: 'CM',  dx: 33, dy: 0 },
+    { role: 'CM',  dx: 35, dy: 9 },
+    { role: 'RM',  dx: 38, dy: 26 },
+    { role: 'ST',  dx: 66, dy: -9 },
+    { role: 'ST',  dx: 66, dy: 9 },
+  ],
+  '3-4-3': [
+    { role: 'CB',  dx: 17, dy: -14 },
+    { role: 'CB',  dx: 15, dy: 0 },
+    { role: 'CB',  dx: 17, dy: 14 },
+    { role: 'LM',  dx: 38, dy: -22 },
+    { role: 'CM',  dx: 35, dy: -8 },
+    { role: 'CM',  dx: 35, dy: 8 },
+    { role: 'RM',  dx: 38, dy: 22 },
+    { role: 'LW',  dx: 63, dy: -22 },
+    { role: 'ST',  dx: 66, dy: 0 },
+    { role: 'RW',  dx: 63, dy: 22 },
+  ],
+};
+
+// --- Utility ---
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function normalizedClamp(v, lo, hi) { return clamp((v - lo) / (hi - lo), 0, 1); }
+
+// --- Build teams ---
+function buildTeam(formationName, side, colors) {
+  // side: 1 = attacking right (own goal at x=0), -1 = attacking left (own goal at x=105)
+  const form = FORMATIONS[formationName];
+  const players = [];
+  const midX = PITCH.w / 2; // 52.5
+  const midY = PITCH.h / 2; // 34
+
+  // Goalkeeper
+  const gkX = side === 1 ? 4 : PITCH.w - 4;
+  players.push({
+    role: 'GK', homeX: gkX, homeY: midY,
+    x: gkX, y: midY, vx: 0, vy: 0,
+    side, colors: { ...colors, shirt: colors.keeper },
+    isKeeper: true, hasBall: false, tackledImmunity: 0, shotCooldown: 0,
+    keeperHandled: false,  // true while GK is holding ball in hands
+    keeperNoPickUp: 0,     // frames remaining where GK can't re-pick the ball
+    shotReaction: 0,       // frames since shot was first detected (reaction delay)
+  });
+
+  // Outfield: dx = distance forward from own goal, dy = lateral offset
+  for (const p of form) {
+    let hx, hy;
+    if (side === 1) {
+      hx = p.dx;             // own goal at x=0, so forward = increasing x
+      hy = midY + p.dy;      // lateral
+    } else {
+      hx = PITCH.w - p.dx;   // own goal at x=105, so forward = decreasing x
+      hy = midY - p.dy;      // mirror lateral
+    }
+    hx = clamp(hx, 2, PITCH.w - 2);
+    hy = clamp(hy, 2, PITCH.h - 2);
+    players.push({
+      role: p.role, homeX: hx, homeY: hy,
+      x: hx, y: hy, vx: 0, vy: 0,
+      side, colors,
+      isKeeper: false, hasBall: false, tackledImmunity: 0, shotCooldown: 0,
+    });
+  }
+  return players;
+}
+
+// --- Ball ---
+let ball = { x: PITCH.w / 2, y: PITCH.h / 2, vx: 0, vy: 0, z: 0, vz: 0, owner: null };
+
+// --- Game state ---
+let teamA = [], teamB = [], allPlayers = [];
+let score = [0, 0];
+let paused = false;
+let matchTime = 0; // seconds
+let speedMult = 1;
+const DT = 1 / 30; // halve the frame rate for slower game
+const GAME_SPEED_SCALE = 0.5; // slow sim to 50% for more natural pace
+
+let kickOffCooldown = 0;
+let passGrace = 0;
+let passTrail = null;
+let lastPasserSide = 0;
+let passOriginX = 0, passOriginY = 0;
+let passTargetPlayer = null;
+let tackleCooldown = 0;
+let lastPasserPlayer = null; // the player who last made a pass (to penalize pass-back)
+let recentPassTargets = []; // last N pass recipients [{player, timer}] — anti-loop
+
+function resetMatch() {
+  const formA = document.getElementById('formA').value;
+  const formB = document.getElementById('formB').value;
+  teamA = buildTeam(formA, 1, TEAM_A);
+  teamB = buildTeam(formB, -1, TEAM_B);
+  allPlayers = [...teamA, ...teamB];
+  ball = { x: PITCH.w / 2, y: PITCH.h / 2, vx: 0, vy: 0, z: 0, vz: 0, owner: null };
+  score = [0, 0];
+  matchTime = 0;
+  recentPassTargets = [];
+  telemReset();
+  doKickOff(teamA);
+  updateScoreboard();
+}
+
+function doKickOff(kickingTeam) {
+  // Reset all positions
+  for (const p of allPlayers) {
+    p.x = p.homeX;
+    p.y = p.homeY;
+    p.vx = 0;
+    p.vy = 0;
+    p.hasBall = false;
+  }
+  // Place ball at center, find the kicking team's CM or ST closest to center
+  ball.x = PITCH.w / 2;
+  ball.y = PITCH.h / 2;
+  ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
+  ball.owner = null;
+  passGrace = 0;
+  passTargetPlayer = null;
+  lastPasserPlayer = null;
+  let kicker = null, bestD = Infinity;
+  for (const p of kickingTeam) {
+    if (p.isKeeper) continue;
+    const d = Math.hypot(p.x - PITCH.w / 2, p.y - PITCH.h / 2);
+    if (d < bestD) { bestD = d; kicker = p; }
+  }
+  if (kicker) {
+    kicker.x = PITCH.w / 2;
+    kicker.y = PITCH.h / 2;
+    ball.owner = kicker;
+    kicker.hasBall = true;
+  }
+  kickOffCooldown = 40; // ~0.67 seconds of walking before anyone can shoot
+}
+
+function updateScoreboard() {
+  document.getElementById('scoreA').textContent = `RED ${score[0]}`;
+  document.getElementById('scoreB').textContent = `BLUE ${score[1]}`;
+}
+
+// ============================================================
+// AI: Pure GameplayFootball Force-Field Positioning
+// Based on ElizaController + TeamAIController from the C++ source
+// ============================================================
+
+let showDebug = true; // toggle with D key — ON by default to show AI
+let debugLines = [];
+let debugLabels = [];
+
+// === TELEMETRY ===
+const telem = {
+  red: { passes: 0, shots: 0, clears: 0, tacklesWon: 0, possFrames: 0, holdTotal: 0, holdCount: 0 },
+  blue: { passes: 0, shots: 0, clears: 0, tacklesWon: 0, possFrames: 0, holdTotal: 0, holdCount: 0 },
+  totalFrames: 0,
+  events: [], // { time, team, action, detail }
+};
+function telemReset() {
+  for (const t of [telem.red, telem.blue]) {
+    t.passes = 0; t.shots = 0; t.clears = 0; t.tacklesWon = 0;
+    t.possFrames = 0; t.holdTotal = 0; t.holdCount = 0;
+  }
+  telem.totalFrames = 0;
+  telem.events = [];
+  const log = document.getElementById('eventLog');
+  if (log) log.innerHTML = '<b style="color:#666">EVENT LOG</b>';
+}
+function telemEvent(team, action, detail) {
+  const mins = Math.floor(matchTime / 3) % 90;
+  const secs = Math.floor((matchTime / 3 * 60) % 60);
+  const timeStr = `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+  telem.events.push({ time: timeStr, team, action, detail });
+  // Keep last 40
+  if (telem.events.length > 40) telem.events.shift();
+  // Append to DOM
+  const log = document.getElementById('eventLog');
+  if (log) {
+    const cls = team === 'RED' ? 'ev-red' : 'ev-blue';
+    log.innerHTML += `<br><span class="ev-time">${timeStr}</span><span class="${cls}">${team}</span> <span class="ev-action">${action}</span> ${detail}`;
+    log.scrollTop = log.scrollHeight;
+  }
+}
+function telemUpdate() {
+  telem.totalFrames++;
+  // Track possession frames
+  if (ball.owner) {
+    if (ball.owner.side === 1) telem.red.possFrames++;
+    else telem.blue.possFrames++;
+  }
+  const total = telem.red.possFrames + telem.blue.possFrames || 1;
+  // Update DOM
+  document.getElementById('t-redPass').textContent = telem.red.passes;
+  document.getElementById('t-redShot').textContent = telem.red.shots;
+  document.getElementById('t-redClear').textContent = telem.red.clears;
+  document.getElementById('t-redTackle').textContent = telem.red.tacklesWon;
+  document.getElementById('t-redPoss').textContent = Math.round(telem.red.possFrames / total * 100) + '%';
+  document.getElementById('t-redHold').textContent = telem.red.holdCount ? Math.round(telem.red.holdTotal / telem.red.holdCount) + 'f' : '-';
+  document.getElementById('t-bluePass').textContent = telem.blue.passes;
+  document.getElementById('t-blueShot').textContent = telem.blue.shots;
+  document.getElementById('t-blueClear').textContent = telem.blue.clears;
+  document.getElementById('t-blueTackle').textContent = telem.blue.tacklesWon;
+  document.getElementById('t-bluePoss').textContent = Math.round(telem.blue.possFrames / total * 100) + '%';
+  document.getElementById('t-blueHold').textContent = telem.blue.holdCount ? Math.round(telem.blue.holdTotal / telem.blue.holdCount) + 'f' : '-';
+  // Ball carrier info
+  if (ball.owner) {
+    const p = ball.owner;
+    const teamName = p.side === 1 ? 'RED' : 'BLUE';
+    document.getElementById('t-carrier').textContent = `${teamName} ${p.role} (${Math.round(p.x)},${Math.round(p.y)}) hold:${p.holdTime || 0}f`;
+    document.getElementById('t-action').textContent = p.utilAction || (p.isKeeper ? 'keeper' : '-');
+    if (p.utilScores) {
+      const s = p.utilScores;
+      document.getElementById('t-scores').textContent = `P:${s.pass.toFixed(2)} S:${s.shoot.toFixed(2)} D:${s.dribble.toFixed(2)} H:${s.hold.toFixed(2)} C:${s.clear.toFixed(2)}`;
+    } else {
+      document.getElementById('t-scores').textContent = '-';
+    }
+  } else {
+    document.getElementById('t-carrier').textContent = 'LOOSE BALL';
+    document.getElementById('t-action').textContent = '-';
+    document.getElementById('t-scores').textContent = '-';
+  }
+}
+// --- Copy Telemetry to clipboard ---
+document.getElementById('btnCopyTelem').addEventListener('click', () => {
+  const total = telem.red.possFrames + telem.blue.possFrames || 1;
+  const rPoss = Math.round(telem.red.possFrames / total * 100);
+  const bPoss = Math.round(telem.blue.possFrames / total * 100);
+  const rHold = telem.red.holdCount ? Math.round(telem.red.holdTotal / telem.red.holdCount) + 'f' : '-';
+  const bHold = telem.blue.holdCount ? Math.round(telem.blue.holdTotal / telem.blue.holdCount) + 'f' : '-';
+  let text = `=== TELEMETRY (Score: RED ${score[0]} - ${score[1]} BLUE) ===\n`;
+  text += `\nRED:  Passes ${telem.red.passes} | Shots ${telem.red.shots} | Clears ${telem.red.clears} | Tackles ${telem.red.tacklesWon} | Poss ${rPoss}% | Avg hold ${rHold}`;
+  text += `\nBLUE: Passes ${telem.blue.passes} | Shots ${telem.blue.shots} | Clears ${telem.blue.clears} | Tackles ${telem.blue.tacklesWon} | Poss ${bPoss}% | Avg hold ${bHold}`;
+  text += `\n\n=== EVENT LOG ===\n`;
+  for (const ev of telem.events) {
+    text += `${ev.time} ${ev.team} ${ev.action} ${ev.detail}\n`;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('btnCopyTelem');
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => { btn.textContent = '📋 Copy Telemetry'; }, 1500);
+  });
+});
+
+let freezeBlue = false; // press F to toggle
+
+function getTeamPossession(team) {
+  return team.some(p => p.hasBall) ? 1 : 0;
+}
+
+function getClosestToBall(team) {
+  let best = null, bestD = Infinity;
+  for (const p of team) {
+    if (p.isKeeper) continue;
+    const d = dist(p, ball);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
+// ============================================================
+// AI v2: State-Machine with Commitment
+// Players pick an intention and commit for a minimum duration.
+// Simple decision tree replaces frame-by-frame utility scoring.
+// ============================================================
+
+// Mindset: 0=defensive, 1=offensive
+function getMindset(role) {
+  const map = { GK: 0, CB: 0.1, LB: 0.25, RB: 0.25, DM: 0.3, CM: 0.5, LM: 0.55, RM: 0.55, AM: 0.7, LW: 0.75, RW: 0.75, ST: 0.9 };
+  return map[role] ?? 0.5;
+}
+
+function isWideRole(role) {
+  return ['LB','RB','LM','RM','LW','RW'].includes(role);
+}
+
+function getFlankSign(player) {
+  return player.homeY < PITCH.h / 2 ? -1 : 1;
+}
+
+// ========== Off-ball Positioning ==========
+
+function getFormationTarget(player, ballPos, hasPossession) {
+  const mindset = getMindset(player.role);
+  const side = player.side;
+  const mid = PITCH.w / 2;
+
+  // Team slides toward ball
+  const followX = (ballPos.x - mid) * (0.15 + mindset * 0.12);
+  const followY = (ballPos.y - PITCH.h / 2) * (0.08 + mindset * 0.08);
+
+  // Depth shift based on possession — aggressive push in attack
+  let depthShift = 0;
+  if (hasPossession) {
+    depthShift = (side === 1 ? 1 : -1) * (8 + mindset * 22);
+  } else {
+    depthShift = (side === 1 ? -1 : 1) * (4 + (1 - mindset) * 10);
+  }
+
+  let x = player.homeX + followX + depthShift;
+  let y = player.homeY + followY;
+
+  // Clamp: defenders don't push too far
+  if (mindset < 0.3) {
+    x = side === 1 ? Math.min(x, mid + 15) : Math.max(x, mid - 15);
+  }
+
+  return { x: clamp(x, 4, PITCH.w - 4), y: clamp(y, 3, PITCH.h - 3) };
+}
+
+function getOffBallTarget(player, teammates, opponents, ballPos, hasPossession) {
+  const base = getFormationTarget(player, ballPos, hasPossession);
+  const side = player.side;
+  const mindset = getMindset(player.role);
+  let fx = 0, fy = 0;
+
+  // Pull toward formation target (weaker in attack so runs can override)
+  const toBaseX = base.x - player.x;
+  const toBaseY = base.y - player.y;
+  const baseDist = Math.hypot(toBaseX, toBaseY);
+  if (baseDist > 1) {
+    const pull = hasPossession ? 0.2 : 0.55;
+    fx += (toBaseX / baseDist) * pull * Math.min(baseDist, 25);
+    fy += (toBaseY / baseDist) * pull * Math.min(baseDist, 25);
+  }
+
+  // Teammate separation
+  for (const mate of teammates) {
+    if (mate === player || mate.isKeeper) continue;
+    const dx = player.x - mate.x;
+    const dy = player.y - mate.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 0.1 && d < 12) {
+      const repel = ((12 - d) / 12) * 4;
+      fx += (dx / d) * repel;
+      fy += (dy / d) * repel;
+    }
+  }
+
+  // Width for wide players
+  if (isWideRole(player.role) && hasPossession) {
+    const flank = getFlankSign(player);
+    const targetY = PITCH.h / 2 + flank * 25;
+    fy += (targetY - player.y) * 0.2;
+  }
+
+  // Defensive tracking (out of possession, more aggressive)
+  if (!hasPossession && mindset < 0.7) {
+    let nearestOpp = null, nearestD = Infinity;
+    for (const opp of opponents) {
+      if (opp.isKeeper) continue;
+      const d = Math.hypot(base.x - opp.x, base.y - opp.y);
+      if (d < nearestD) { nearestD = d; nearestOpp = opp; }
+    }
+    if (nearestOpp && nearestD < 40) {
+      const ownGoalX = side === 1 ? 0 : PITCH.w;
+      const markX = lerp(nearestOpp.x, ownGoalX, 0.4);
+      const markY = nearestOpp.y;
+      const defWeight = clamp(1 - mindset, 0.4, 1.0);
+      fx += (markX - player.x) * defWeight * 0.7;
+      fy += (markY - player.y) * defWeight * 0.4;
+      if (showDebug) {
+        debugLines.push({ x1: player.x, y1: player.y, x2: nearestOpp.x, y2: nearestOpp.y, color: 'rgba(255,100,100,0.4)' });
+      }
+    }
+  }
+
+  // Forward runs in possession (attackers push hard toward goal)
+  if (hasPossession && mindset > 0.5) {
+    const oppGoalX = side === 1 ? PITCH.w : 0;
+    const ownGoalX = side === 1 ? 0 : PITCH.w;
+    const distToOppGoal = Math.abs(player.x - oppGoalX);
+    if (distToOppGoal > 15) {
+      const runStrength = (mindset - 0.3) * 15;
+      fx += (oppGoalX > ownGoalX ? 1 : -1) * runStrength;
+    }
+  }
+
+  let tx = player.x + fx;
+  let ty = player.y + fy;
+  tx = clamp(tx, 3, PITCH.w - 3);
+  ty = clamp(ty, 3, PITCH.h - 3);
+
+  return { tx, ty };
+}
+
+// ========== Keeper ==========
+
+function updateKeeper(keeper, opponents, dt) {
+  const goalX = keeper.side === 1 ? 4 : PITCH.w - 4;
+  const goalLineX = keeper.side === 1 ? 0 : PITCH.w;
+  const goalCenterY = PITCH.h / 2;
+  const ballDist = dist(keeper, ball);
+
+  const ballSpeed = Math.hypot(ball.vx, ball.vy);
+  const ballHeadingToGoal = !ball.owner && ballSpeed > 10 &&
+    ((keeper.side === 1 && ball.vx < -5) || (keeper.side === -1 && ball.vx > 5));
+
+  let targetY = goalCenterY;
+  let targetX = goalX;
+  let maxSpeed = 5;
+
+  // Aggressive on slow rollers near goal line
+  const ballNearGoalLine = !ball.owner && Math.abs(ball.x - goalLineX) < 2 && ballSpeed < 6;
+
+  if (ballHeadingToGoal && ballDist < 35) {
+    // Shot detected — react after delay
+    keeper.shotReaction = (keeper.shotReaction || 0) + 1;
+    if (keeper.shotReaction > 5) {
+      // Project where ball crosses goal line (with inaccuracy)
+      const t = Math.abs(goalLineX - ball.x) / Math.abs(ball.vx);
+      const projY = ball.y + ball.vy * t;
+      // Keeper misjudges by up to 7m
+      const error = (Math.random() - 0.5) * 14;
+      targetY = clamp(projY + error, goalCenterY - 6, goalCenterY + 6);
+      maxSpeed = 5; // diving speed
+    } else {
+      // Reaction window: freeze in place (can't read the shot yet)
+      targetY = keeper.y;
+      maxSpeed = 1;
+    }
+  } else if ((ballDist < 12 && !ball.owner) || ballNearGoalLine) {
+    // Loose ball nearby or slow roller near goal line — come out more aggressively
+    targetX = lerp(goalX, ball.x, ballNearGoalLine ? 0.5 : 0.1);
+    targetY = lerp(goalCenterY, ball.y, ballNearGoalLine ? 0.5 : 0.15);
+    maxSpeed = ballNearGoalLine ? 7 : 5;
+    keeper.shotReaction = 0;
+  } else {
+    // Normal: track ball Y position very lazily
+    targetY = clamp(ball.y, goalCenterY - 6, goalCenterY + 6);
+    maxSpeed = 2.5;
+    keeper.shotReaction = 0;
+  }
+
+  // Move toward target — direct position approach (no velocity smoothing tricks)
+  const dx = targetX - keeper.x;
+  const dy = targetY - keeper.y;
+  const d = Math.hypot(dx, dy);
+  if (d > 0.3) {
+    const speed = Math.min(maxSpeed, d * 3);
+    keeper.vx = (dx / d) * speed;
+    keeper.vy = (dy / d) * speed;
+  } else {
+    keeper.vx *= 0.8;
+    keeper.vy *= 0.8;
+  }
+
+  // Deflection: keeper near fast ball → deflect instead of catch
+  const ballSpd = Math.hypot(ball.vx, ball.vy);
+  if (ballDist < 1.8 && ballSpd > 12 && !ball.owner && keeper.keeperNoPickUp <= 0 && !(ball.shotInFlight > 0) && Math.random() < 0.5) {
+    ball.vx *= -0.3 + (Math.random() - 0.5) * 0.4;
+    ball.vy += (Math.random() - 0.5) * 8;
+    ball.vz = Math.random() * 2;
+    keeper.keeperNoPickUp = 51; // can't immediately re-grab (scaled 30 * 1.714)
+  }
+
+  // Save: pick up the ball if close enough (increased radius for slow rollers)
+  const effectivePickup = ballSpd > 12 ? 0.4 : (ballNearGoalLine ? 1.0 : 0.55);
+  if (ballDist < effectivePickup && !ball.owner && keeper.keeperNoPickUp <= 0 && !(ball.shotInFlight > 0)) {
+    ball.owner = keeper;
+    keeper.hasBall = true;
+    keeper.holdTime = 0;
+    keeper.keeperHandled = true;
+    const oppTeam = keeper.side === 1 ? teamB : teamA;
+    for (const opp of oppTeam) {
+      const od = dist(opp, keeper);
+      if (od < 5) {
+        const pdx = opp.x - keeper.x;
+        const pdy = opp.y - keeper.y;
+        const pd = Math.hypot(pdx, pdy) || 1;
+        opp.x += (pdx / pd) * (5 - od);
+        opp.y += (pdy / pd) * (5 - od);
+        opp.x = clamp(opp.x, 1, PITCH.w - 1);
+        opp.y = clamp(opp.y, 1, PITCH.h - 1);
+      }
+    }
+  }
+}
+
+// ========== On-Ball Helpers ==========
+
+function findBestPass(player, teammates, opponents, attackDir) {
+  let bestTarget = null, bestScore = -Infinity;
+  const oppGoalX = attackDir === 1 ? PITCH.w : 0;
+
+  for (const mate of teammates) {
+    if (mate === player || mate.isKeeper) continue;
+    const d = dist(player, mate);
+    if (d < 5 || d > 55) continue;
+
+    // Anti-loop: can't pass back to the player who just passed to us
+    if (mate === lastPasserPlayer) continue;
+    if (mate.justPassed > 60) continue; // don't pass back to a player who just shot
+    // Anti-loop: can't pass to anyone we recently passed to (within last 120 frames)
+    if (recentPassTargets.some(r => r.player === mate && r.timer > 0)) continue;
+
+    // Lane clearance
+    let blocked = false;
+    for (const opp of opponents) {
+      const t = ((opp.x - player.x) * (mate.x - player.x) + (opp.y - player.y) * (mate.y - player.y))
+              / (Math.pow(mate.x - player.x, 2) + Math.pow(mate.y - player.y, 2));
+      if (t > 0.1 && t < 0.9) {
+        const projX = player.x + t * (mate.x - player.x);
+        const projY = player.y + t * (mate.y - player.y);
+        const clearance = Math.hypot(opp.x - projX, opp.y - projY);
+        if (clearance < 2) { blocked = true; break; }
+      }
+    }
+    if (blocked) continue;
+
+    // Receiver openness
+    let nearOppDist = Infinity;
+    for (const opp of opponents) {
+      const od = dist(mate, opp);
+      if (od < nearOppDist) nearOppDist = od;
+    }
+    const openness = clamp(nearOppDist / 8, 0, 1);
+
+    // Forward progress
+    const forward = (mate.x - player.x) * attackDir / PITCH.w;
+
+    // Positional value (closer to opponent goal)
+    const posValue = 1 - Math.abs(mate.x - oppGoalX) / PITCH.w;
+
+    const score = openness * 0.35 + forward * 0.35 + posValue * 0.2 + (1 - d / 55) * 0.1;
+
+    if (score > bestScore) { bestScore = score; bestTarget = mate; }
+  }
+
+  return { target: bestTarget, score: bestScore };
+}
+
+function canShoot(player, opponents, attackDir) {
+  const oppGoalX = attackDir === 1 ? PITCH.w : 0;
+  const goalY = PITCH.h / 2;
+  const distToGoal = Math.abs(player.x - oppGoalX);
+  const angleToGoal = Math.abs(player.y - goalY);
+
+  if (distToGoal > 32 || angleToGoal > 25) return false;
+  if (player.shotCooldown > 0) return false;
+
+  let blocked = 0;
+  for (const opp of opponents) {
+    const t = ((opp.x - player.x) * (oppGoalX - player.x) + (opp.y - player.y) * (goalY - player.y))
+            / (Math.pow(oppGoalX - player.x, 2) + Math.pow(goalY - player.y, 2));
+    if (t > 0.05 && t < 0.85) {
+      const projX = player.x + t * (oppGoalX - player.x);
+      const projY = player.y + t * (goalY - player.y);
+      const clearance = Math.hypot(opp.x - projX, opp.y - projY);
+      if (clearance < 2) blocked++;
+    }
+  }
+  return blocked < (distToGoal < 18 ? 5 : distToGoal < 25 ? 3 : 2);
+}
+
+function getSpaceAhead(player, opponents, attackDir) {
+  let closest = Infinity;
+  for (const opp of opponents) {
+    const dx = (opp.x - player.x) * attackDir;
+    if (dx > 0 && dx < 15) {
+      const lateralDist = Math.abs(opp.y - player.y);
+      if (lateralDist < 5) {
+        const d = Math.hypot(dx, lateralDist);
+        if (d < closest) closest = d;
+      }
+    }
+  }
+  return closest;
+}
+
+// ========== Utility AI: On-Ball Decision System ==========
+// Decisions happen on a timer (game-seconds), not per-tick random rolls.
+// Each action is scored 0–1, then the best is picked.
+
+const UTIL_WEIGHTS = {
+  pass:    1.0,   // overall weight for passing
+  shoot:   1.0,   // overall weight for shooting
+  dribble: 1.0,   // overall weight for dribbling
+  clear:   1.0,   // overall weight for clearing
+};
+
+// Decision interval in game-seconds (matchTime units)
+// Shorter when under pressure, longer when safe
+function getDecisionInterval(closestOppDist) {
+  if (closestOppDist < 3)  return 0.15;  // ~0.45 real-sec, heavy pressure
+  if (closestOppDist < 6)  return 0.3;   // ~0.9 real-sec, moderate pressure
+  if (closestOppDist < 10) return 0.5;   // ~1.5 real-sec, light pressure
+  return 0.8;                             // ~2.4 real-sec, lots of space
+}
+
+function scorePass(player, teammates, opponents, attackDir) {
+  const { target, score: passQuality } = findBestPass(player, teammates, opponents, attackDir);
+  if (!target) return { score: 0, target: null };
+
+  const oppGoalX = attackDir === 1 ? PITCH.w : 0;
+  const distToGoal = Math.abs(player.x - oppGoalX);
+
+  // Base: how good the pass option is (0–1 from findBestPass)
+  let s = clamp(passQuality, 0, 1) * 0.6;
+
+  // Pressure bonus — more likely to pass when pressed
+  let closestOppDist = Infinity;
+  for (const opp of opponents) { const d = dist(player, opp); if (d < closestOppDist) closestOppDist = d; }
+  if (closestOppDist < 5) s += (5 - closestOppDist) / 5 * 0.3;
+
+  // Hold time bonus — increasingly want to pass the longer we hold
+  const holdSec = (player.holdTime || 0) * 0.01667;
+  s += clamp(holdSec / 3, 0, 0.2);
+
+  // Midfield boost — passing is the primary midfield action
+  if (distToGoal > 35) s += 0.15;
+
+  // Penalty for being very close to goal (prefer shooting there)
+  if (distToGoal < 15) s -= 0.2;
+
+  return { score: clamp(s, 0, 1), target };
+}
+
+function scoreShoot(player, opponents, attackDir) {
+  const oppGoalX = attackDir === 1 ? PITCH.w : 0;
+  const distToGoal = Math.abs(player.x - oppGoalX);
+  const angleToGoal = Math.abs(player.y - PITCH.h / 2);
+
+  if (player.shotCooldown > 0) return 0;
+  if (distToGoal > 32 || angleToGoal > 25) return 0;
+  if (!canShoot(player, opponents, attackDir)) return 0;
+
+  // Distance curve: peaks close, drops off quickly
+  let s = clamp(1 - distToGoal / 35, 0, 1) * 0.7;
+
+  // Angle penalty: straight-on is best
+  s -= clamp(angleToGoal / 20, 0, 0.3);
+
+  // Close-range bonus
+  if (distToGoal < 12) s += 0.25;
+  if (distToGoal < 7) s += 0.2;
+
+  // Hold time — force shot if stuck near goal
+  const holdSec = (player.holdTime || 0) * 0.01667;
+  if (distToGoal < 10 && holdSec > 2) s += 0.3;
+
+  return clamp(s, 0, 1);
+}
+
+function scoreDribble(player, opponents, attackDir) {
+  const oppGoalX = attackDir === 1 ? PITCH.w : 0;
+  const distToGoal = Math.abs(player.x - oppGoalX);
+
+  // Space ahead is king for dribbling
+  const space = getSpaceAhead(player, opponents, attackDir);
+  let s = clamp(space / 15, 0, 1) * 0.5;
+
+  // Forward progress potential
+  if (distToGoal > 20) s += 0.2;
+
+  // Penalty when pressed — dribbling into defenders is bad
+  let closestOppDist = Infinity;
+  for (const opp of opponents) { const d = dist(player, opp); if (d < closestOppDist) closestOppDist = d; }
+  if (closestOppDist < 3) s -= 0.3;
+  if (closestOppDist < 5) s -= 0.1;
+
+  // Dead zone: very close to goal, dribbling is useless
+  if (distToGoal < 7) s -= 0.4;
+
+  // Early hold bonus — just received, settle the ball
+  const holdSec = (player.holdTime || 0) * 0.01667;
+  if (holdSec < 0.5) s += 0.3;
+
+  // Penalty for holding too long — need to do something
+  if (holdSec > 2) s -= 0.2;
+
+  return clamp(s, 0, 1);
+}
+
+function scoreClear(player, opponents) {
+  const ownGoalX = player.side === 1 ? 0 : PITCH.w;
+  const distToOwnGoal = Math.abs(player.x - ownGoalX);
+
+  let closestOppDist = Infinity;
+  for (const opp of opponents) { const d = dist(player, opp); if (d < closestOppDist) closestOppDist = d; }
+
+  // Only relevant in own half under pressure
+  if (distToOwnGoal > 35) return 0;
+
+  let s = 0;
+  // Danger zone: own third + pressure
+  if (distToOwnGoal < 20 && closestOppDist < 5) s = 0.6;
+  if (distToOwnGoal < 12 && closestOppDist < 3) s = 0.85;
+
+  // CB bonus for clearing
+  if (player.role === 'CB' || player.role === 'LB' || player.role === 'RB') s += 0.1;
+
+  return clamp(s, 0, 1);
+}
+
+function updateOnBall(player, teammates, opponents, dt) {
+  const attackDir = player.side;
+  const oppGoalX = attackDir === 1 ? PITCH.w : 0;
+
+  if (!player.holdTime) player.holdTime = 0;
+  player.holdTime++;
+
+  // === KEEPER: FIFA 8-second rule ===
+  if (player.isKeeper) {
+    const GK_TIME_LIMIT = 480;
+    const GK_DISTRIBUTE_AT = 90;
+    const GK_URGENT_AT = 360;
+
+    const goalX = player.side === 1 ? 4 : PITCH.w - 4;
+    const goalY = PITCH.h / 2;
+    const dxG = goalX - player.x;
+    const dyG = goalY - player.y;
+    const dG = Math.hypot(dxG, dyG);
+    if (dG > 1) {
+      player.vx = (dxG / dG) * 3;
+      player.vy = (dyG / dG) * 2;
+    } else {
+      player.vx *= 0.8; player.vy *= 0.8;
+    }
+    ball.x = player.x; ball.y = player.y;
+
+    if (player.holdTime >= GK_TIME_LIMIT) {
+      telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'GK VIOLATION', `held ball ${Math.round(player.holdTime / 60)}s — corner kick`);
+      awardCornerKick(player.side);
+      return;
+    }
+
+    if (player.holdTime > GK_DISTRIBUTE_AT) {
+      const { target, score } = findBestPass(player, teammates, opponents, attackDir);
+      const threshold = player.holdTime > GK_URGENT_AT ? -1 : 0.1;
+      if (target && score > threshold) {
+        telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'GK THROW', `to ${target.role} (${Math.round(dist(player, target))}m)`);
+        doPass(player, target);
+        ball.vx *= 1.4; ball.vy *= 1.4;
+        player.keeperHandled = false;
+        player.keeperNoPickUp = 180;
+        return;
+      }
+      if (player.holdTime > GK_URGENT_AT + 60) {
+        telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'GK PUNT', `at ${Math.round(player.holdTime / 60)}s`);
+        clearBall(player);
+        player.keeperHandled = false;
+        player.keeperNoPickUp = 180;
+        return;
+      }
+    }
+    return;
+  }
+
+  // === OUTFIELD: Utility AI Decision System ===
+  // Decisions happen on a timer, not every frame.
+  // Between decisions, continue current action.
+
+  const distToGoal = Math.abs(player.x - oppGoalX);
+  const ownGoalX = player.side === 1 ? 0 : PITCH.w;
+  const distToOwnGoal = Math.abs(player.x - ownGoalX);
+
+  let closestOppDist = Infinity;
+  for (const opp of opponents) {
+    const d = dist(player, opp);
+    if (d < closestOppDist) closestOppDist = d;
+  }
+
+  // First touch: always dribble for 0.3s to settle the ball
+  if (player.holdTime < 20) {
+    player.utilAction = 'dribble';
+    player.utilScores = { pass: 0, shoot: 0, dribble: 1, hold: 0, clear: 0 };
+    doDribble(player, opponents, attackDir);
+    return;
+  }
+
+  // Decision timer: only re-evaluate at intervals
+  if (!player.nextDecisionTime) player.nextDecisionTime = 0;
+  if (matchTime < player.nextDecisionTime && player.utilAction) {
+    // Continue current action
+    if (player.utilAction === 'dribble') {
+      doDribble(player, opponents, attackDir);
+    }
+    // pass/shoot/clear are instant — if we're here, we already did them
+    // so just dribble as fallback
+    if (player.utilAction !== 'dribble') {
+      doDribble(player, opponents, attackDir);
+    }
+    return;
+  }
+
+  // === DECISION POINT: Score all actions ===
+  const passResult = scorePass(player, teammates, opponents, attackDir);
+  const shootScore = scoreShoot(player, opponents, attackDir);
+  const dribbleScore = scoreDribble(player, opponents, attackDir);
+  const clearScore = scoreClear(player, opponents);
+
+  const scores = {
+    pass:    passResult.score * UTIL_WEIGHTS.pass,
+    shoot:   shootScore * UTIL_WEIGHTS.shoot,
+    dribble: dribbleScore * UTIL_WEIGHTS.dribble,
+    hold:    0,
+    clear:   clearScore * UTIL_WEIGHTS.clear,
+  };
+  player.utilScores = scores;
+
+  // Pick highest scoring action (with small random noise for variety)
+  let bestAction = 'dribble';
+  let bestScore = -1;
+  for (const [action, sc] of Object.entries(scores)) {
+    const noisy = sc + Math.random() * 0.08; // small noise
+    if (noisy > bestScore) { bestScore = noisy; bestAction = action; }
+  }
+
+  // Set next decision time
+  const interval = getDecisionInterval(closestOppDist);
+  player.nextDecisionTime = matchTime + interval;
+  player.utilAction = bestAction;
+
+  // Execute the chosen action
+  switch (bestAction) {
+    case 'pass': {
+      const target = passResult.target;
+      if (target) {
+        doPass(player, target);
+      } else {
+        doDribble(player, opponents, attackDir); // fallback
+      }
+      break;
+    }
+    case 'shoot':
+      doShoot(player, oppGoalX);
+      break;
+    case 'clear':
+      clearBall(player, true);
+      break;
+    case 'dribble':
+    default:
+      doDribble(player, opponents, attackDir);
+      break;
+  }
+}
+
+// ========== Actions ==========
+
+function doPass(from, to) {
+  const t = from.side === 1 ? telem.red : telem.blue;
+  t.passes++;
+  if (from.holdTime) { t.holdTotal += from.holdTime; t.holdCount++; }
+  telemEvent(from.side === 1 ? 'RED' : 'BLUE', 'PASS', `${from.role}→${to.role} (${Math.round(dist(from,to))}m)`);
+  from.hasBall = false;
+  from.holdTime = 0;
+  from.intention = null;
+  from.justPassed = 30;
+  ball.owner = null;
+  passOriginX = from.x;
+  passOriginY = from.y;
+  passTargetPlayer = to;
+  lastPasserPlayer = from;
+  lastPasserSide = from.side;
+  // Record this pass target for anti-loop (120 frame cooldown)
+  recentPassTargets = recentPassTargets.filter(r => r.timer > 0);
+  recentPassTargets.push({ player: to, timer: 120 });
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const d = Math.hypot(dx, dy);
+  // --- Pass power tuned for realism ---
+  const power = clamp((6 + d * 0.18) * 0.5, 3, 7.5);
+  ball.vx = (dx / d) * power;
+  ball.vy = (dy / d) * power;
+  const naiveFrames = d / power * 60 * 0.7;
+  passGrace = Math.max(20, Math.ceil(naiveFrames * 2.5));
+  passTrail = {
+    x1: from.x, y1: from.y, x2: to.x, y2: to.y,
+    color: from.side === 1 ? 'rgba(255,120,120,0.9)' : 'rgba(120,120,255,0.9)',
+    life: 45,
+  };
+}
+
+function doShoot(player, goalX) {
+  const t = player.side === 1 ? telem.red : telem.blue;
+  t.shots++;
+  if (player.holdTime) { t.holdTotal += player.holdTime; t.holdCount++; }
+  const distG = Math.round(Math.abs(player.x - goalX));
+  // Shot power and spread tuned for realism
+  const power = 22 + Math.random() * 8;
+  const goalCenterY = PITCH.h / 2;
+  const spread = clamp(3 + distG * 0.05, 3, 5);
+  const goalY = goalCenterY + (Math.random() - 0.5) * 2 * spread;
+  const dx = goalX - player.x;
+  const dy = goalY - player.y;
+  const d = Math.hypot(dx, dy);
+  ball.vx = (dx / d) * power;
+  ball.vy = (dy / d) * power;
+  const shotSpeed = Math.hypot(ball.vx, ball.vy).toFixed(2);
+  telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'SHOT', `${player.role} from ${distG}m | ${shotSpeed} m/s`);
+  player.hasBall = false;
+  player.holdTime = 0;
+  player.intention = null;
+  player.shotCooldown = 150;
+  ball.owner = null;
+  // Ground shots more likely at close range
+  ball.vz = Math.random() < 0.4 ? (Math.random() * 0.2) : (0.8 + Math.random() * 1.2);
+  passGrace = 17; // grace period — prevent interception during shot flight
+  lastPasserSide = player.side;
+  lastPasserPlayer = player;
+  passTargetPlayer = null; // no pass target for shots
+  player.justPassed = 200;
+  // Prevent ALL players from intercepting during shot flight
+  ball.shotInFlight = 26;
+  // Prevent defending GK from catching the shot
+  const defTeam = (goalX < PITCH.w / 2) ? teamA : teamB;
+  const defKeeper = defTeam.find(p => p.isKeeper);
+  if (defKeeper) defKeeper.keeperNoPickUp = 14;
+  passTrail = {
+    x1: player.x, y1: player.y, x2: goalX, y2: goalY,
+    color: '#ff0', life: 25,
+  };
+}
+
+function doDribble(player, opponents, attackDir) {
+  const oppGoalX = attackDir === 1 ? PITCH.w : 0;
+  const toGoalX = oppGoalX - player.x;
+  const distToGoal = Math.abs(toGoalX);
+
+  // Don't dribble into the goal — stop at ~5m from goal line
+  if (distToGoal < 5) {
+    player.vx = 0;
+    player.vy = 0;
+    ball.x = player.x; ball.y = player.y;
+    return;
+  }
+
+  // Near goal: slow down and cut inside
+  if (distToGoal < 10) {
+    player.vx = (toGoalX > 0 ? 1 : -1) * 1.5;
+    player.vy = clamp((PITCH.h / 2 - player.y) * 0.5, -6, 6);
+    ball.x = player.x; ball.y = player.y;
+    return;
+  }
+
+  // Main direction: toward opponent goal — strong forward bias
+  // --- Reduced dribble speed for realism ---
+  let vx = (toGoalX > 0 ? 1 : -1) * 3.5;
+  let vy = 0;
+
+  // Minimal lateral drift — forward is king
+  if (isWideRole(player.role)) {
+    const flank = getFlankSign(player);
+    const touchline = PITCH.h / 2 + flank * 25;
+    vy = (touchline - player.y) * 0.03; // very gentle lateral pull
+    if (distToGoal < 22) vy += (PITCH.h / 2 - player.y) * 0.08; // cut inside near goal
+  } else {
+    vy = (PITCH.h / 2 - player.y) * 0.02; // almost straight ahead
+  }
+
+  // Evade nearest opponent — subtle, don't sacrifice forward speed
+  let nearDist = Infinity, nearOpp = null;
+  for (const opp of opponents) {
+    const d = dist(player, opp);
+    if (d < nearDist) { nearDist = d; nearOpp = opp; }
+  }
+  if (nearOpp && nearDist < 5) {
+    const evadeStrength = clamp((5 - nearDist) / 4, 0.3, 1.5);
+    vy += (player.y > nearOpp.y ? 1 : -1) * evadeStrength;
+  }
+
+  player.vx = vx;
+  player.vy = clamp(vy, -3, 3);
+  ball.x = player.x;
+  ball.y = player.y;
+}
+
+function clearBall(player) {
+  // Defensive clear: kick ball far away toward touchline or upfield
+  const t = player.side === 1 ? telem.red : telem.blue;
+  t.clears++;
+  telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'CLEAR', `${player.role}`);
+  player.hasBall = false;
+  player.holdTime = 0;
+  player.intention = null;
+  ball.owner = null;
+  const dir = player.side === 1 ? 1 : -1;
+  ball.vx = dir * (22 + Math.random() * 8);
+  ball.vy = (Math.random() - 0.5) * 14;
+  ball.vz = 4 + Math.random() * 2;
+  passGrace = 20;
+  lastPasserSide = player.side;
+  // Always log clear event in telemetry and event log if forced
+  if (arguments.length > 1 && arguments[1]) {
+    if (typeof telemEvent === 'function') telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'CLEAR', `FORCED by ${player.role}`);
+  }
+}
+
+// ========== Player AI Tick ==========
+
+function smoothVelocity(player, desiredVx, desiredVy, blendRate) {
+  player.vx = lerp(player.vx, desiredVx, blendRate);
+  player.vy = lerp(player.vy, desiredVy, blendRate);
+}
+
+function getSecondClosestToBall(team) {
+  let best = null, bestD = Infinity, second = null, secondD = Infinity;
+  for (const p of team) {
+    if (p.isKeeper) continue;
+    const d = dist(p, ball);
+    if (d < bestD) { secondD = bestD; second = best; bestD = d; best = p; }
+    else if (d < secondD) { secondD = d; second = p; }
+  }
+  return second;
+}
+
+function updatePlayerAI(player, teammates, opponents, dt) {
+  const myTeam = player.side === 1 ? teamA : teamB;
+  const oppTeam = player.side === 1 ? teamB : teamA;
+  const possession = getTeamPossession(myTeam);
+
+  player.aiState = 'idle';
+
+  // Keeper
+  if (player.isKeeper) {
+    player.aiState = 'keeper';
+    if (player.hasBall) {
+      player.aiState = 'onball';
+      updateOnBall(player, teammates, opponents, dt);
+      return;
+    }
+    updateKeeper(player, opponents, dt);
+    return;
+  }
+
+  // Ball chaser when out of possession
+  if (!possession) {
+    const oppKeeper = oppTeam.find(p => p.isKeeper);
+    if (oppKeeper && oppKeeper.hasBall && oppKeeper.keeperHandled) {
+      const oppGoalX = player.side === 1 ? PITCH.w : 0;
+      if (Math.abs(player.x - oppGoalX) < 16.5) {
+        const retreatX = player.side === 1 ? PITCH.w - 18 : 18;
+        smoothVelocity(player, (retreatX - player.x) * 0.3, 0, 0.2);
+        player.aiState = 'retreat';
+        return;
+      }
+    }
+
+    const closest = getClosestToBall(myTeam);
+    const second = getSecondClosestToBall(myTeam);
+    if ((player === closest || (player === second && dist(player, ball) < 18)) && !player.justPassed) {
+      player.aiState = 'chase';
+      const dx = ball.x - player.x;
+      const dy = ball.y - player.y;
+      const d = Math.hypot(dx, dy);
+      const speed = player === closest ? 8.5 : 7;
+      if (d > 0.5) {
+        smoothVelocity(player, (dx / d) * speed, (dy / d) * speed, 0.25);
+      }
+      if (d < 1.5 && !ball.owner && !(ball.shotInFlight > 0)) {
+        ball.owner = player;
+        player.hasBall = true;
+        player.holdTime = 0;
+        player.intention = null;
+        player.nextDecisionTime = 0;
+        player.utilAction = null;
+      }
+      return;
+    }
+  }
+
+  // On-ball
+  if (player.hasBall) {
+    player.aiState = 'onball';
+    updateOnBall(player, teammates, opponents, dt);
+    return;
+  }
+
+  // Loose ball claim
+  if (!ball.owner && dist(player, ball) < 1.5 && !player.justPassed && !(ball.shotInFlight > 0)) {
+    ball.owner = player;
+    player.hasBall = true;
+    player.holdTime = 0;
+    player.intention = null;
+    player.nextDecisionTime = 0;
+    player.utilAction = null;
+  }
+
+  // Off-ball positioning
+  player.aiState = possession ? 'support' : 'defend';
+  const { tx, ty } = getOffBallTarget(player, teammates, opponents, ball, possession);
+  player.targetX = tx;
+  player.targetY = ty;
+
+  const dx = tx - player.x;
+  const dy = ty - player.y;
+  const d = Math.hypot(dx, dy);
+  if (d > 0.5) {
+    const urgency = clamp(normalizedClamp(d, 1, 12), 0.4, 1);
+    const maxSpeed = possession ? 7 : 8;
+    smoothVelocity(player, (dx / d) * maxSpeed * urgency, (dy / d) * maxSpeed * urgency, 0.2);
+  } else {
+    smoothVelocity(player, 0, 0, 0.15);
+  }
+}
+
+// ========== Tackles & Intercepts ==========
+
+function checkTackles() {
+  // Tackles re-enabled with tuned parameters
+  if (!ball.owner) return;
+  if (tackleCooldown > 0) return;
+  const owner = ball.owner;
+  if (owner.isKeeper && owner.keeperHandled) return;
+
+  const oppTeam = owner.side === 1 ? teamB : teamA;
+  for (const opp of oppTeam) {
+    if (opp.tackledImmunity > 0) continue;
+    const d = dist(opp, ball);
+    if (d < 3.0) {
+      const chance = 0.0006 + (3.0 - d) * 0.0004;
+      if (Math.random() < chance) {
+        owner.hasBall = false;
+        owner.holdTime = 0;
+        owner.intention = null;
+        owner.tackledImmunity = 170;
+        const oppTelem = opp.side === 1 ? telem.red : telem.blue;
+        oppTelem.tacklesWon++;
+        telemEvent(opp.side === 1 ? 'RED' : 'BLUE', 'TACKLE', `${opp.role} dispossesses ${owner.role}`);
+        const awayAngle = Math.atan2(opp.y - owner.y, opp.x - owner.x) + (Math.random() - 0.5) * 1.2;
+        ball.vx = Math.cos(awayAngle) * 12;
+        ball.vy = Math.sin(awayAngle) * 12;
+        ball.vz = 0.5;
+        ball.owner = null;
+        tackleCooldown = 500;
+        passTargetPlayer = null;
+        return;
+      }
+    }
+  }
+}
+
+function checkIntercepts() {
+  if (ball.owner) return;
+  // During shot flight, nobody can intercept — let the ball fly
+  if (ball.shotInFlight > 0) { ball.shotInFlight--; return; }
+  // Priority: intended pass target gets larger pickup radius
+  if (passTargetPlayer && !passTargetPlayer.hasBall && passTargetPlayer.tackledImmunity <= 0) {
+    const td = dist(passTargetPlayer, ball);
+    if (td < 2.5) {
+      ball.owner = passTargetPlayer;
+      passTargetPlayer.hasBall = true;
+      passTargetPlayer.holdTime = 0;
+      passTargetPlayer.intention = null;
+      passTargetPlayer.nextDecisionTime = 0;
+      passTargetPlayer.utilAction = null;
+      ball.vx = 0; ball.vy = 0;
+      passGrace = 0;
+      passTargetPlayer = null;
+      return;
+    }
+  }
+
+  for (const p of allPlayers) {
+    if (p.tackledImmunity > 0) continue;
+    if (p.isKeeper && p.keeperNoPickUp > 0) continue;
+    if (p.justPassed > 0) continue; // shooter/passer can't reclaim
+    const d = dist(p, ball);
+    const pickupR = p.isKeeper ? 0.5 : 1.5;
+    if (d < pickupR) {
+      if (passGrace > 0) {
+        // During grace: opponents can't intercept, passer can't reclaim
+        if (p.side !== lastPasserSide) continue;
+        if (p === lastPasserPlayer) continue;
+      }
+      ball.owner = p;
+      p.hasBall = true;
+      p.holdTime = 0;
+      p.intention = null;
+      ball.vx = 0; ball.vy = 0;
+      passGrace = 0;
+      passTargetPlayer = null;
+      return;
+    }
+  }
+}
+// --- Award corner kick (GK violated 8-second rule) ---
+function awardCornerKick(keeperSide) {
+  const offendingKeeper = allPlayers.find(p => p.isKeeper && p.side === keeperSide);
+  if (offendingKeeper) {
+    offendingKeeper.hasBall = false;
+    offendingKeeper.holdTime = 0;
+    offendingKeeper.keeperHandled = false;
+    offendingKeeper.keeperNoPickUp = 300; // 5s penalty lockout
+  }
+  // Place at nearest corner of the offending keeper's goal line
+  const cornerX = keeperSide === 1 ? 2 : PITCH.w - 2;
+  const cornerY = ball.y < PITCH.h / 2 ? 2 : PITCH.h - 2;
+  ball.x = cornerX; ball.y = cornerY;
+  ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
+  ball.owner = null;
+  // Give to closest opponent outfield player
+  const oppTeam = keeperSide === 1 ? teamB : teamA;
+  let closest = null, closestD = Infinity;
+  for (const p of oppTeam) {
+    if (p.isKeeper) continue;
+    const d = Math.hypot(p.x - cornerX, p.y - cornerY);
+    if (d < closestD) { closestD = d; closest = p; }
+  }
+  if (closest) {
+    closest.x = cornerX;
+    closest.y = cornerY;
+    ball.owner = closest;
+    closest.hasBall = true;
+    closest.holdTime = 0;
+  }
+  passGrace = 0;
+  passTargetPlayer = null;
+}
+
+// --- Goal check ---
+function checkGoal() {
+  const goalHalfW = 5;
+  const goalYMin = PITCH.h / 2 - goalHalfW;
+  const goalYMax = PITCH.h / 2 + goalHalfW;
+
+  if (ball.x <= 0.5 && ball.y > goalYMin && ball.y < goalYMax) {
+    const offCenter = Math.abs(ball.y - PITCH.h / 2) / goalHalfW;
+    const saveChance = 0.93 - offCenter * 0.25;
+    if (Math.random() < saveChance) {
+      ball.shotInFlight = 0;
+      const keeper = teamA.find(p => p.isKeeper);
+      if (keeper) {
+        ball.x = keeper.x; ball.y = keeper.y;
+        ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
+        ball.owner = keeper; keeper.hasBall = true; keeper.holdTime = 0;
+        keeper.keeperHandled = true;
+      }
+      return;
+    }
+    score[1]++;
+    telemEvent('BLUE', 'GOAL', `Score! ${score[0]}-${score[1]}`);
+    updateScoreboard();
+    doKickOff(teamA);
+  } else if (ball.x >= PITCH.w - 0.5 && ball.y > goalYMin && ball.y < goalYMax) {
+    const offCenter = Math.abs(ball.y - PITCH.h / 2) / goalHalfW;
+    const saveChance = 0.93 - offCenter * 0.25;
+    if (Math.random() < saveChance) {
+      ball.shotInFlight = 0;
+      const keeper = teamB.find(p => p.isKeeper);
+      if (keeper) {
+        ball.x = keeper.x; ball.y = keeper.y;
+        ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
+        ball.owner = keeper; keeper.hasBall = true; keeper.holdTime = 0;
+        keeper.keeperHandled = true;
+      }
+      return;
+    }
+    score[0]++;
+    telemEvent('RED', 'GOAL', `Score! ${score[0]}-${score[1]}`);
+    updateScoreboard();
+    doKickOff(teamB);
+  } else if (ball.x < -1 || ball.x > PITCH.w + 1 || ball.y < -1 || ball.y > PITCH.h + 1) {
+    resetBallInBounds();
+  }
+}
+
+function resetBallInBounds() {
+  // Determine if ball went over a goal line or a sideline
+  const outLeft = ball.x < -1;
+  const outRight = ball.x > PITCH.w + 1;
+  const outTop = ball.y < -1;
+  const outBottom = ball.y > PITCH.h + 1;
+
+  ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
+
+  if (outLeft || outRight) {
+    // Ball crossed a goal line (but didn't score) → goal kick for the defending team
+    const defendingSide = outLeft ? 1 : -1; // team whose goal line it crossed
+    const gkX = defendingSide === 1 ? 6 : PITCH.w - 6;
+    ball.x = gkX;
+    ball.y = PITCH.h / 2;
+    ball.owner = null;
+    // Give to the defending team's keeper or closest defender
+    const defTeam = defendingSide === 1 ? teamA : teamB;
+    const keeper = defTeam.find(p => p.isKeeper);
+    if (keeper) {
+      keeper.x = gkX; keeper.y = PITCH.h / 2;
+      ball.owner = keeper;
+      keeper.hasBall = true;
+      keeper.holdTime = 0;
+      keeper.keeperHandled = true;
+    }
+    telemEvent(defendingSide === 1 ? 'RED' : 'BLUE', 'GOAL KICK', '');
+    return;
+  }
+
+  if (outTop || outBottom) {
+    // Sideline → throw-in to the team that didn't touch it last
+    ball.x = clamp(ball.x, 1, PITCH.w - 1);
+    ball.y = outTop ? 1 : PITCH.h - 1;
+    // Give to closest player from the non-last-passing side
+    const throwSide = lastPasserSide === 1 ? -1 : 1;
+    const throwTeam = throwSide === 1 ? teamA : teamB;
+    let closest = null, closestD = Infinity;
+    for (const p of throwTeam) {
+      if (p.isKeeper) continue;
+      const d = Math.hypot(p.x - ball.x, p.y - ball.y);
+      if (d < closestD) { closestD = d; closest = p; }
+    }
+    if (closest) {
+      closest.x = ball.x; closest.y = ball.y;
+      ball.owner = closest;
+      closest.hasBall = true;
+      closest.holdTime = 0;
+    }
+    telemEvent(throwSide === 1 ? 'RED' : 'BLUE', 'THROW-IN', '');
+    return;
+  }
+
+  // Fallback
+  ball.x = clamp(ball.x, 1, PITCH.w - 1);
+  ball.y = clamp(ball.y, 1, PITCH.h - 1);
+  let closest = null, closestD = Infinity;
+  for (const p of allPlayers) {
+    const d = dist(p, ball);
+    if (d < closestD) { closestD = d; closest = p; }
+  }
+  if (closest) {
+    ball.owner = closest;
+    closest.hasBall = true;
+  }
+}
+
+// --- Physics tick ---
+function tick(dt) {
+  matchTime += dt;
+  if (kickOffCooldown > 0) kickOffCooldown--;
+  if (passGrace > 0) passGrace--;
+  if (tackleCooldown > 0) tackleCooldown--;
+  if (passTrail && --passTrail.life <= 0) passTrail = null;
+  // Tick down anti-loop pass target timers
+  for (const r of recentPassTargets) r.timer--;
+  recentPassTargets = recentPassTargets.filter(r => r.timer > 0);
+  for (const p of allPlayers) {
+    if (p.justPassed > 0) p.justPassed--;
+    if (p.tackledImmunity > 0) p.tackledImmunity--;
+    if (p.shotCooldown > 0) p.shotCooldown--;
+    if (p.keeperNoPickUp > 0) p.keeperNoPickUp--;
+  }
+
+  // Update AI for all players
+  for (const p of teamA) updatePlayerAI(p, teamA, teamB, dt);
+  if (!freezeBlue) {
+    for (const p of teamB) updatePlayerAI(p, teamB, teamA, dt);
+  } else {
+    // Frozen: zero velocity, can't hold ball
+    for (const p of teamB) { p.vx = 0; p.vy = 0; }
+  }
+
+  // Move players
+  for (const p of allPlayers) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.x = clamp(p.x, 0.5, PITCH.w - 0.5);
+    p.y = clamp(p.y, 0.5, PITCH.h - 0.5);
+  }
+
+  // Move ball
+  if (ball.owner) {
+    ball.x = ball.owner.x;
+    ball.y = ball.owner.y;
+    ball.z = 0;
+  } else {
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+    ball.z += ball.vz * dt;
+    ball.vz -= 20 * dt; // gravity
+    if (ball.z < 0) { ball.z = 0; ball.vz = -ball.vz * 0.3; }
+    // Friction — calibrated so passes travel proper distances
+    // PSL: linear drag 0.58 on 65.6u field. Scaled to 105m: ~0.7
+    ball.vx *= (1 - 0.7 * dt);
+    ball.vy *= (1 - 0.7 * dt);
+  }
+
+  checkTackles();
+  checkIntercepts();
+  checkGoal();
+  telemUpdate();
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+
+function drawPitch() {
+  // Grass base (PSL #2e8b2e)
+  ctx.fillStyle = '#2e8b2e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Mowing stripes (PSL style — alternating lighter bands)
+  const stripeW = (W - 40) / 12;
+  for (let i = 0; i < 12; i++) {
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(76,175,80,0.10)';
+      ctx.fillRect(OX + i * stripeW, OY, stripeW, H - 40);
+    }
+  }
+
+  // Turf noise (PSL scatters 1800 tiny rects)
+  for (let i = 0; i < 600; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(53,143,53,0.12)' : 'rgba(39,117,39,0.12)';
+    const gx = OX + Math.random() * (W - 40);
+    const gy = OY + Math.random() * (H - 40);
+    ctx.fillRect(gx, gy, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+
+  // Outline
+  const [lx, ly] = toScreen(0, 0);
+  const [rx, ry] = toScreen(PITCH.w, PITCH.h);
+  ctx.strokeRect(lx, ly, rx - lx, ry - ly);
+
+  // Center line
+  const [cx, cy1] = toScreen(PITCH.w / 2, 0);
+  const [, cy2] = toScreen(PITCH.w / 2, PITCH.h);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy1);
+  ctx.lineTo(cx, cy2);
+  ctx.stroke();
+
+  // Center circle
+  const [ccx, ccy] = toScreen(PITCH.w / 2, PITCH.h / 2);
+  ctx.beginPath();
+  ctx.arc(ccx, ccy, 9.15 * SCALE_X, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Center dot
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(ccx, ccy, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Penalty areas (16.5m × 40.3m)
+  const paW = 16.5, paH = 40.3;
+  // Left
+  const [pa1x, pa1y] = toScreen(0, (PITCH.h - paH) / 2);
+  const [pa1x2, pa1y2] = toScreen(paW, (PITCH.h + paH) / 2);
+  ctx.strokeRect(pa1x, pa1y, pa1x2 - pa1x, pa1y2 - pa1y);
+  // Right
+  const [pa2x, pa2y] = toScreen(PITCH.w - paW, (PITCH.h - paH) / 2);
+  const [pa2x2, pa2y2] = toScreen(PITCH.w, (PITCH.h + paH) / 2);
+  ctx.strokeRect(pa2x, pa2y, pa2x2 - pa2x, pa2y2 - pa2y);
+
+  // Goal areas (5.5m × 18.3m)
+  const gaW = 5.5, gaH = 18.3;
+  const [ga1x, ga1y] = toScreen(0, (PITCH.h - gaH) / 2);
+  const [ga1x2, ga1y2] = toScreen(gaW, (PITCH.h + gaH) / 2);
+  ctx.strokeRect(ga1x, ga1y, ga1x2 - ga1x, ga1y2 - ga1y);
+  const [ga2x, ga2y] = toScreen(PITCH.w - gaW, (PITCH.h - gaH) / 2);
+  const [ga2x2, ga2y2] = toScreen(PITCH.w, (PITCH.h + gaH) / 2);
+  ctx.strokeRect(ga2x, ga2y, ga2x2 - ga2x, ga2y2 - ga2y);
+
+  // Goals (nets behind the line — PSL style mesh)
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  const goalHalfW = 3.66;
+  const [gn1x, gn1y] = toScreen(-2, PITCH.h / 2 - goalHalfW);
+  const [gn1x2, gn1y2] = toScreen(0, PITCH.h / 2 + goalHalfW);
+  ctx.fillRect(gn1x, gn1y, gn1x2 - gn1x, gn1y2 - gn1y);
+  // Net mesh lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 0.5;
+  for (let ny = gn1y; ny < gn1y2; ny += 3) { ctx.beginPath(); ctx.moveTo(gn1x, ny); ctx.lineTo(gn1x2, ny); ctx.stroke(); }
+  for (let nx = gn1x; nx < gn1x2; nx += 3) { ctx.beginPath(); ctx.moveTo(nx, gn1y); ctx.lineTo(nx, gn1y2); ctx.stroke(); }
+
+  const [gn2x, gn2y] = toScreen(PITCH.w, PITCH.h / 2 - goalHalfW);
+  const [gn2x2, gn2y2] = toScreen(PITCH.w + 2, PITCH.h / 2 + goalHalfW);
+  ctx.fillRect(gn2x, gn2y, gn2x2 - gn2x, gn2y2 - gn2y);
+  for (let ny = gn2y; ny < gn2y2; ny += 3) { ctx.beginPath(); ctx.moveTo(gn2x, ny); ctx.lineTo(gn2x2, ny); ctx.stroke(); }
+  for (let nx = gn2x; nx < gn2x2; nx += 3) { ctx.beginPath(); ctx.moveTo(nx, gn2y); ctx.lineTo(nx, gn2y2); ctx.stroke(); }
+
+  // Goal posts & crossbar (PSL gold #f5d000)
+  ctx.fillStyle = '#f5d000';
+  ctx.strokeStyle = '#f5d000';
+  ctx.lineWidth = 2;
+  const [gp1x, gp1y] = toScreen(0, PITCH.h / 2 - goalHalfW);
+  ctx.fillRect(gp1x - 2, gp1y - 1, 4, 3);
+  const [, gp1y2] = toScreen(0, PITCH.h / 2 + goalHalfW);
+  ctx.fillRect(gp1x - 2, gp1y2 - 1, 4, 3);
+  ctx.beginPath(); ctx.moveTo(gp1x, gp1y); ctx.lineTo(gp1x, gp1y2); ctx.stroke(); // crossbar
+
+  const [gp2x, gp2y] = toScreen(PITCH.w, PITCH.h / 2 - goalHalfW);
+  ctx.fillRect(gp2x - 2, gp2y - 1, 4, 3);
+  const [, gp2y2] = toScreen(PITCH.w, PITCH.h / 2 + goalHalfW);
+  ctx.fillRect(gp2x - 2, gp2y2 - 1, 4, 3);
+  ctx.beginPath(); ctx.moveTo(gp2x, gp2y); ctx.lineTo(gp2x, gp2y2); ctx.stroke(); // crossbar
+
+  // Penalty spots
+  ctx.fillStyle = '#fff';
+  const [ps1x, ps1y] = toScreen(11, PITCH.h / 2);
+  ctx.beginPath(); ctx.arc(ps1x, ps1y, 2, 0, Math.PI * 2); ctx.fill();
+  const [ps2x, ps2y] = toScreen(PITCH.w - 11, PITCH.h / 2);
+  ctx.beginPath(); ctx.arc(ps2x, ps2y, 2, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawPlayer(p) {
+  const [sx, sy] = toScreen(p.x, p.y);
+
+  // Shadow (oval, PSL style)
+  ctx.fillStyle = 'rgba(26,92,26,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy + 3, 7, 2.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Determine sprite & animation frame
+  const moving = Math.hypot(p.vx, p.vy) > 1;
+  const frame = Math.floor(matchTime * 8) % 4;
+  let pattern;
+  if (p.isKeeper) {
+    pattern = moving ? PSL_KEEPER_RUN : PSL_KEEPER_IDLE;
+  } else if (moving) {
+    const runFrames = [PSL_RUN1, PSL_RUN2, PSL_RUN3, PSL_RUN2];
+    pattern = runFrames[frame];
+  } else {
+    pattern = PSL_IDLE;
+  }
+
+  const facing = p.vx >= 0 ? 1 : -1;
+  const teamCol = p.isKeeper
+    ? { shirt: p.colors.keeper, pants: p.colors.keeperPants || p.colors.keeper, hair: p.colors.hair || '#1a1a1a', skin: p.colors.skin || '#d4a373' }
+    : { shirt: p.colors.shirt, pants: p.colors.pants, hair: p.colors.hair || '#1a1a1a', skin: p.colors.skin || '#d4a373' };
+  drawPSLSprite(sx, sy, pattern, teamCol, facing, 1);
+
+  // Role label
+  ctx.fillStyle = 'rgba(255,255,200,0.85)';
+  ctx.font = 'bold 8px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(p.role, sx, sy + 12);
+}
+
+function drawBall() {
+  // Draw pass trail
+  if (passTrail && passTrail.life > 0) {
+    const [sx1, sy1] = toScreen(passTrail.x1, passTrail.y1);
+    const [sx2, sy2] = toScreen(passTrail.x2, passTrail.y2);
+    ctx.strokeStyle = passTrail.color;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = passTrail.life / 45;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(sx1, sy1);
+    ctx.lineTo(sx2, sy2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+
+  const [sx, sy] = toScreen(ball.x, ball.y);
+  const lift = ball.z * 3;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy + 2, 4, 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ball
+  const r = 3 + ball.z * 0.5;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(sx, sy - lift, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  // Black pentagon (soccer ball look)
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.arc(sx - 0.5, sy - lift - 0.5, r * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawHUD() {
+  const mins = Math.floor(matchTime / 3) % 90; // 3 real seconds = 1 match minute
+  const secs = Math.floor((matchTime / 3 * 60) % 60);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(W / 2 - 36, 2, 72, 16);
+  ctx.fillStyle = '#fff';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`, W / 2, 14);
+}
+
+function drawDebugOverlay() {
+  if (!showDebug) return;
+
+  // Draw target positions and movement vectors
+  for (const p of allPlayers) {
+    if (p.isKeeper) continue;
+    const [sx, sy] = toScreen(p.x, p.y);
+
+    // Target position marker
+    if (p.targetX !== undefined) {
+      const [tx, ty] = toScreen(p.targetX, p.targetY);
+      ctx.strokeStyle = p.side === 1 ? 'rgba(255,100,100,0.4)' : 'rgba(100,100,255,0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.setLineDash([]);
+      // Small cross at target
+      ctx.beginPath(); ctx.moveTo(tx - 3, ty); ctx.lineTo(tx + 3, ty); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(tx, ty - 3); ctx.lineTo(tx, ty + 3); ctx.stroke();
+    }
+
+    // AI state label + utility action
+    if (p.aiState) {
+      ctx.fillStyle = 'rgba(255,255,0,0.8)';
+      ctx.font = '7px monospace';
+      ctx.textAlign = 'center';
+      let label = p.aiState;
+      if (p.hasBall && p.utilAction) label = p.utilAction.toUpperCase();
+      ctx.fillText(label, sx, sy - 16);
+    }
+  }
+
+  // Draw debug lines (defensive tracking)
+  for (const l of debugLines) {
+    const [x1, y1] = toScreen(l.x1, l.y1);
+    const [x2, y2] = toScreen(l.x2, l.y2);
+    ctx.strokeStyle = l.color;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  // Possession indicator
+  const possA = getTeamPossession(teamA);
+  const possB = getTeamPossession(teamB);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(W / 2 - 80, H - 28, 160, 26);
+  ctx.fillStyle = possA ? '#ff4444' : possB ? '#4488ff' : '#888';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  const possText = possA ? '● RED POSSESSION' : possB ? '● BLUE POSSESSION' : '● LOOSE BALL';
+  ctx.fillText(possText, W / 2, H - 18);
+
+  // Force field legend
+  ctx.fillStyle = '#aaa';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('--- = force target  — = marking', W / 2 - 78, H - 8);
+}
+
+// Draw formation shape (connecting defensive line, midfield line)
+function drawFormationShape() {
+  if (!showDebug) return;
+  for (const team of [teamA, teamB]) {
+    const color = team === teamA ? 'rgba(255,50,50,0.2)' : 'rgba(50,50,255,0.2)';
+    // Group by similar depth (defensive line, midfield, attack)
+    const outfield = team.filter(p => !p.isKeeper);
+    // Sort by x position
+    const sorted = [...outfield].sort((a, b) => a.x - b.x);
+    // Draw convex hull-ish shape connecting all outfield players
+    if (sorted.length > 2) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      // Sort by angle from centroid for a proper polygon
+      const cx = sorted.reduce((s, p) => s + p.x, 0) / sorted.length;
+      const cy = sorted.reduce((s, p) => s + p.y, 0) / sorted.length;
+      const byAngle = [...sorted].sort((a, b) =>
+        Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx)
+      );
+      const [sx, sy] = toScreen(byAngle[0].x, byAngle[0].y);
+      ctx.moveTo(sx, sy);
+      for (let i = 1; i < byAngle.length; i++) {
+        const [px, py] = toScreen(byAngle[i].x, byAngle[i].y);
+        ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  debugLines = [];
+  debugLabels = [];
+
+  drawPitch();
+  drawFormationShape();
+
+  // Draw players sorted by Y for depth
+  const sorted = [...allPlayers].sort((a, b) => a.y - b.y);
+  for (const p of sorted) drawPlayer(p);
+
+  drawBall();
+  drawDebugOverlay();
+  drawHUD();
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+
+function gameLoop() {
+  if (!paused) {
+    const steps = Math.max(1, Math.round(speedMult));
+    for (let i = 0; i < steps; i++) tick(DT * GAME_SPEED_SCALE);
+  }
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+// --- Controls ---
+document.getElementById('btnPause').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('btnPause').textContent = paused ? '▶ Play' : '⏸ Pause';
+});
+document.getElementById('btnReset').addEventListener('click', resetMatch);
+document.getElementById('speed').addEventListener('change', e => { speedMult = parseFloat(e.target.value); });
+document.getElementById('formA').addEventListener('change', resetMatch);
+document.getElementById('formB').addEventListener('change', resetMatch);
+
+// Debug toggle
+document.addEventListener('keydown', e => {
+  if (e.key === 'd' || e.key === 'D') showDebug = !showDebug;
+  if (e.key === 'f' || e.key === 'F') freezeBlue = !freezeBlue;
+  if (e.key === ' ') {
+    e.preventDefault();
+    paused = !paused;
+    document.getElementById('btnPause').textContent = paused ? '▶ Play' : '⏸ Pause';
+  }
+});
+
+// Boot
+resetMatch();
+gameLoop();
+</script>
+</body>
+</html>
