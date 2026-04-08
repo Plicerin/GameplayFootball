@@ -10,8 +10,10 @@
   #controls { display: flex; gap: 12px; margin-bottom: 8px; align-items: center; font-size: 12px; }
   #controls button { background: #334; color: #fff; border: 1px solid #556; padding: 4px 12px; cursor: pointer; font-family: inherit; }
   #controls button:hover { background: #445; }
+  button.stp { background: #334; color: #fff; border: 1px solid #556; padding: 1px 6px; cursor: pointer; font-family: inherit; font-size: 12px; line-height: 1; }
+  button.stp:hover { background: #556; }
   #controls select { background: #223; color: #fff; border: 1px solid #556; padding: 3px 6px; font-family: inherit; }
-  canvas { border: 2px solid #334; image-rendering: pixelated; transform: perspective(1200px) rotateX(30deg); transform-origin: center bottom; }
+  canvas { display: block; }
   #scoreboard { display: flex; gap: 24px; margin: 6px 0; font-size: 14px; letter-spacing: 1px; }
   .team-score { padding: 2px 10px; border-radius: 3px; }
   #info { font-size: 11px; color: #889; margin-top: 4px; }
@@ -44,6 +46,14 @@
   <button id="btnPause">⏸ Pause</button>
   <button id="btnReset">↻ Reset</button>
 </div>
+<div id="fieldCalib" style="display:flex;gap:16px;align-items:center;width:960px;margin-bottom:4px;font-size:11px;flex-wrap:wrap">
+  <b style="color:#aaa">Field calibration:</b>
+  <label style="display:flex;align-items:center;gap:3px">OX         <button class="stp" data-sl="slOX" data-d="-1">−</button><input type="range" id="slOX" min="0"   max="250" step="1"    value="107"  style="width:100px"><button class="stp" data-sl="slOX" data-d="1">+</button> <span id="lblOX">107</span></label>
+  <label style="display:flex;align-items:center;gap:3px">OY         <button class="stp" data-sl="slOY" data-d="-1">−</button><input type="range" id="slOY" min="0"   max="250" step="1"    value="111"  style="width:100px"><button class="stp" data-sl="slOY" data-d="1">+</button> <span id="lblOY">111</span></label>
+  <label style="display:flex;align-items:center;gap:3px">Scale X    <button class="stp" data-sl="slSX" data-d="-1">−</button><input type="range" id="slSX" min="3"   max="14"  step="0.05"  value="7.10" style="width:100px"><button class="stp" data-sl="slSX" data-d="1">+</button> <span id="lblSX">7.10</span></label>
+  <label style="display:flex;align-items:center;gap:3px">Scale Y    <button class="stp" data-sl="slSY" data-d="-1">−</button><input type="range" id="slSY" min="3"   max="14"  step="0.05"  value="4.90" style="width:100px"><button class="stp" data-sl="slSY" data-d="1">+</button> <span id="lblSY">4.90</span></label>
+  <label style="display:flex;align-items:center;gap:3px">Perspective <button class="stp" data-sl="slTI" data-d="-1">−</button><input type="range" id="slTI" min="0"   max="200" step="1"    value="85"   style="width:100px"><button class="stp" data-sl="slTI" data-d="1">+</button> <span id="lblTI">85</span></label>
+</div>
 <canvas id="pitch" width="960" height="620"></canvas>
 <div id="info">AI: Force-field positioning (off-ball) + Utility AI (on-ball) · Press <b>D</b> to toggle debug overlay</div>
 <div id="telemetry">
@@ -71,6 +81,16 @@
       <tr><td>Scores</td><td id="t-scores" colspan="3" style="font-size:9px">-</td></tr>
     </table>
   </div>
+  <div class="panel" style="min-width:230px">
+    <h3>VS MLS 2025 AVG</h3>
+    <table>
+      <tr><td></td><td class="red" style="text-align:center">RED</td><td style="color:#555;text-align:center;padding:0 6px">AVG</td><td class="blue" style="text-align:center">BLUE</td></tr>
+      <tr><td>Goals/90</td><td id="t-cmpRedGoal">-</td><td style="color:#555">1.5</td><td id="t-cmpBlueGoal">-</td></tr>
+      <tr><td>Shots/90</td><td id="t-cmpRedShot">-</td><td style="color:#555">14</td><td id="t-cmpBlueShot">-</td></tr>
+      <tr><td>Passes/90</td><td id="t-cmpRedPass">-</td><td style="color:#555">430</td><td id="t-cmpBluePass">-</td></tr>
+      <tr><td>Tackles/90</td><td id="t-cmpRedTackle">-</td><td style="color:#555">18</td><td id="t-cmpBlueTackle">-</td></tr>
+    </table>
+  </div>
 </div>
 <div style="display:flex;align-items:center;gap:8px;width:960px;margin-top:4px">
   <button id="btnCopyTelem" style="padding:3px 10px;font-size:11px;cursor:pointer;background:#222;color:#ccc;border:1px solid #555;border-radius:3px">📋 Copy Telemetry</button>
@@ -90,12 +110,21 @@ const W = canvas.width, H = canvas.height;
 
 // --- Pitch dimensions (in "meters", mapped to pixels) ---
 const PITCH = { w: 105, h: 68 };
-const SCALE_X = (W - 40) / PITCH.w;
-const SCALE_Y = (H - 40) / PITCH.h;
-const OX = 20, OY = 20; // origin offset
+// Field image calibration — live-editable via the sliders above the canvas.
+let OX = 107, OY = 111;
+let SCALE_X = 7.10, SCALE_Y = 4.90;
+let topInset = 85; // px — top (far) side is narrower by this much on each side
 
 function toScreen(mx, my) {
-  return [OX + mx * SCALE_X, OY + my * SCALE_Y];
+  // Bilinear 4-corner perspective mapping:
+  //   bottom corners: (OX, ...) and (OX + PITCH.w*SCALE_X, ...) — full width
+  //   top corners: (OX+topInset, ...) and (OX + PITCH.w*SCALE_X - topInset, ...) — narrower
+  // This makes goal lines and all field lines follow the image perspective angle.
+  const tx = mx / PITCH.w;
+  const ty = my / PITCH.h;
+  const x = OX + mx * SCALE_X + topInset * (1 - ty) * (1 - 2 * tx);
+  const y = OY + my * SCALE_Y;
+  return [x, y];
 }
 
 // --- Team colors ---
@@ -370,8 +399,8 @@ let score = [0, 0];
 let paused = false;
 let matchTime = 0; // seconds
 let speedMult = 1;
-const DT = 1 / 30; // halve the frame rate for slower game
-const GAME_SPEED_SCALE = 0.5; // slow sim to 50% for more natural pace
+const DT = 1 / 60; // one tick = one 60 fps frame
+const GAME_SPEED_SCALE = 1.0; // no additional scaling — speedMult handles pace
 
 let kickOffCooldown = 0;
 let passGrace = 0;
@@ -440,11 +469,23 @@ function updateScoreboard() {
 // Based on ElizaController + TeamAIController from the C++ source
 // ============================================================
 
-let showDebug = true; // toggle with D key — ON by default to show AI
+let showDebug = false; // toggle with D key
 let debugLines = [];
 let debugLabels = [];
 
 // === TELEMETRY ===
+// MLS 2025 average stats per team per 90-minute game.
+// Goals: computed from mlsTeamStats2025 (total goalsFor 1530 / 1020 team-games = 1.50).
+// Shots/Passes/Tackles: MLS official / Opta public averages.
+const MLS_AVG = { goals: 1.50, shots: 14.2, passes: 430, tackles: 18 };
+
+function fmtVsMLS(val, benchmark) {
+  const pct = Math.round((val - benchmark) / benchmark * 100);
+  const sign = pct >= 0 ? '+' : '';
+  const col = pct > 10 ? '#4f4' : pct < -10 ? '#f84' : '#aaa';
+  return `<span style="color:${col}">${val}&thinsp;<small>(${sign}${pct}%)</small></span>`;
+}
+
 const telem = {
   red: { passes: 0, shots: 0, clears: 0, tacklesWon: 0, possFrames: 0, holdTotal: 0, holdCount: 0 },
   blue: { passes: 0, shots: 0, clears: 0, tacklesWon: 0, possFrames: 0, holdTotal: 0, holdCount: 0 },
@@ -462,8 +503,8 @@ function telemReset() {
   if (log) log.innerHTML = '<b style="color:#666">EVENT LOG</b>';
 }
 function telemEvent(team, action, detail) {
-  const mins = Math.floor(matchTime / 3) % 90;
-  const secs = Math.floor((matchTime / 3 * 60) % 60);
+  const mins = Math.min(Math.floor(matchTime / 12), 90);
+  const secs = mins >= 90 ? 0 : Math.floor((matchTime / 12 * 60) % 60);
   const timeStr = `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
   telem.events.push({ time: timeStr, team, action, detail });
   // Keep last 40
@@ -497,6 +538,20 @@ function telemUpdate() {
   document.getElementById('t-blueTackle').textContent = telem.blue.tacklesWon;
   document.getElementById('t-bluePoss').textContent = Math.round(telem.blue.possFrames / total * 100) + '%';
   document.getElementById('t-blueHold').textContent = telem.blue.holdCount ? Math.round(telem.blue.holdTotal / telem.blue.holdCount) + 'f' : '-';
+  // VS MLS 2025 comparison — normalize sim stats to per-90-minute rate
+  const matchMinutes = matchTime / 12;
+  if (matchMinutes >= 1) {
+    const per90 = v => Math.round(v * 90 / matchMinutes);
+    const per90f = v => (v * 90 / matchMinutes).toFixed(1);
+    document.getElementById('t-cmpRedGoal').innerHTML  = fmtVsMLS(per90f(score[0]), MLS_AVG.goals);
+    document.getElementById('t-cmpBlueGoal').innerHTML = fmtVsMLS(per90f(score[1]), MLS_AVG.goals);
+    document.getElementById('t-cmpRedShot').innerHTML  = fmtVsMLS(per90(telem.red.shots),  MLS_AVG.shots);
+    document.getElementById('t-cmpBlueShot').innerHTML = fmtVsMLS(per90(telem.blue.shots), MLS_AVG.shots);
+    document.getElementById('t-cmpRedPass').innerHTML  = fmtVsMLS(per90(telem.red.passes),  MLS_AVG.passes);
+    document.getElementById('t-cmpBluePass').innerHTML = fmtVsMLS(per90(telem.blue.passes), MLS_AVG.passes);
+    document.getElementById('t-cmpRedTackle').innerHTML  = fmtVsMLS(per90(telem.red.tacklesWon),  MLS_AVG.tackles);
+    document.getElementById('t-cmpBlueTackle').innerHTML = fmtVsMLS(per90(telem.blue.tacklesWon), MLS_AVG.tackles);
+  }
   // Ball carrier info
   if (ball.owner) {
     const p = ball.owner;
@@ -533,6 +588,10 @@ document.getElementById('btnCopyTelem').addEventListener('click', () => {
     const btn = document.getElementById('btnCopyTelem');
     btn.textContent = '✅ Copied!';
     setTimeout(() => { btn.textContent = '📋 Copy Telemetry'; }, 1500);
+  }).catch(() => {
+    const btn = document.getElementById('btnCopyTelem');
+    btn.textContent = '❌ Failed – copy manually';
+    setTimeout(() => { btn.textContent = '📋 Copy Telemetry'; }, 2500);
   });
 });
 
@@ -583,10 +642,17 @@ function getFormationTarget(player, ballPos, hasPossession) {
   const followX = (ballPos.x - mid) * (0.15 + mindset * 0.12);
   const followY = (ballPos.y - PITCH.h / 2) * (0.08 + mindset * 0.08);
 
-  // Depth shift based on possession — aggressive push in attack
+  // Depth shift based on possession — scale by ball position so attackers
+  // stay within pass range when team is building out from own half.
   let depthShift = 0;
   if (hasPossession) {
-    depthShift = (side === 1 ? 1 : -1) * (8 + mindset * 22);
+    // ballProgress: 0 = ball at own goal, 1 = ball at opponent goal
+    const ballProgress = side === 1 ? ballPos.x / PITCH.w : 1 - ballPos.x / PITCH.w;
+    // attackBoost: full push only when ball is past midfield; zero in own third.
+    // Wide players get a floor so they're always advanced even during build-up.
+    const boostFloor = isWideRole(player.role) ? 0.35 : 0;
+    const attackBoost = clamp((ballProgress - 0.35) * 3, boostFloor, 1);
+    depthShift = (side === 1 ? 1 : -1) * (8 + mindset * 22 * attackBoost);
   } else {
     depthShift = (side === 1 ? -1 : 1) * (4 + (1 - mindset) * 10);
   }
@@ -599,6 +665,14 @@ function getFormationTarget(player, ballPos, hasPossession) {
     x = side === 1 ? Math.min(x, mid + 15) : Math.max(x, mid - 15);
   }
 
+  // Clamp: attackers (ST/AM/LW/RW) hold sensible positions without possession.
+  // 25m past midfield = x≈77.5 for RED, leaving them ~27.5m from opponent goal
+  // — within shooting range as soon as their team wins the ball.
+  if (mindset > 0.65 && !hasPossession) {
+    const holdLine = mid + (side === 1 ? 25 : -25);
+    x = side === 1 ? Math.min(x, holdLine) : Math.max(x, holdLine);
+  }
+
   return { x: clamp(x, 4, PITCH.w - 4), y: clamp(y, 3, PITCH.h - 3) };
 }
 
@@ -608,12 +682,14 @@ function getOffBallTarget(player, teammates, opponents, ballPos, hasPossession) 
   const mindset = getMindset(player.role);
   let fx = 0, fy = 0;
 
-  // Pull toward formation target (weaker in attack so runs can override)
+  // Pull toward formation target
   const toBaseX = base.x - player.x;
   const toBaseY = base.y - player.y;
   const baseDist = Math.hypot(toBaseX, toBaseY);
   if (baseDist > 1) {
-    const pull = hasPossession ? 0.2 : 0.55;
+    // Stronger pull in possession so teammates spread and create passing lanes.
+    // Out of possession: strong pull back to defensive shape.
+    const pull = hasPossession ? 0.45 : 0.60;
     fx += (toBaseX / baseDist) * pull * Math.min(baseDist, 25);
     fy += (toBaseY / baseDist) * pull * Math.min(baseDist, 25);
   }
@@ -624,18 +700,33 @@ function getOffBallTarget(player, teammates, opponents, ballPos, hasPossession) 
     const dx = player.x - mate.x;
     const dy = player.y - mate.y;
     const d = Math.hypot(dx, dy);
-    if (d > 0.1 && d < 12) {
-      const repel = ((12 - d) / 12) * 4;
+    // Same-role players (e.g. two STs) use a wider repel radius and double force
+    // so they naturally occupy different areas rather than clustering together.
+    const sameRole = mate.role === player.role;
+    const repelRadius = sameRole ? 20 : 12;
+    const repelStrength = sameRole ? 8 : 4;
+    if (d > 0.1 && d < repelRadius) {
+      const repel = ((repelRadius - d) / repelRadius) * repelStrength;
       fx += (dx / d) * repel;
       fy += (dy / d) * repel;
     }
   }
 
-  // Width for wide players
+  // Width for wide players — stay on the flank when deep to stretch the defense,
+  // but cut inside into dangerous channels when close to the opponent's goal.
   if (isWideRole(player.role) && hasPossession) {
     const flank = getFlankSign(player);
-    const targetY = PITCH.h / 2 + flank * 25;
-    fy += (targetY - player.y) * 0.2;
+    const oppGoalX = side === 1 ? PITCH.w : 0;
+    const distToOppGoal = Math.abs(player.x - oppGoalX);
+    if (distToOppGoal > 35) {
+      // Far out: hug the touchline to create width and passing angles
+      const targetY = PITCH.h / 2 + flank * 25;
+      fy += (targetY - player.y) * 0.2;
+    } else {
+      // Near the box: cut inside into the penalty area channels
+      const targetY = PITCH.h / 2 + flank * 13;
+      fy += (targetY - player.y) * 0.4;
+    }
   }
 
   // Defensive tracking (out of possession, more aggressive)
@@ -659,16 +750,21 @@ function getOffBallTarget(player, teammates, opponents, ballPos, hasPossession) 
     }
   }
 
-  // Forward runs in possession (attackers push hard toward goal)
+  // Forward runs in possession — wide players make aggressive overlapping/inside runs
+  // into positions where they can receive through-balls or cut onto goal.
   if (hasPossession && mindset > 0.5) {
     const oppGoalX = side === 1 ? PITCH.w : 0;
     const ownGoalX = side === 1 ? 0 : PITCH.w;
     const distToOppGoal = Math.abs(player.x - oppGoalX);
     if (distToOppGoal > 15) {
-      const runStrength = (mindset - 0.3) * 15;
+      const baseStrength = (mindset - 0.3) * 12;
+      const wideBoost = isWideRole(player.role) ? 9 : 0;
+      const runStrength = baseStrength + wideBoost;
       fx += (oppGoalX > ownGoalX ? 1 : -1) * runStrength;
     }
   }
+  // NOTE: no support-run-toward-carrier here. That caused everyone to cluster
+  // within 12m of the ball, destroying passing lanes and killing build-up play.
 
   let tx = player.x + fx;
   let ty = player.y + fy;
@@ -687,46 +783,57 @@ function updateKeeper(keeper, opponents, dt) {
   const ballDist = dist(keeper, ball);
 
   const ballSpeed = Math.hypot(ball.vx, ball.vy);
-  const ballHeadingToGoal = !ball.owner && ballSpeed > 10 &&
-    ((keeper.side === 1 && ball.vx < -5) || (keeper.side === -1 && ball.vx > 5));
+  // Detect shot: fast ball moving toward this keeper's goal, ball not owned
+  const ballHeadingToGoal = !ball.owner && ballSpeed > 8 &&
+    ((keeper.side === 1 && ball.vx < -3) || (keeper.side === -1 && ball.vx > 3));
 
   let targetY = goalCenterY;
   let targetX = goalX;
   let maxSpeed = 5;
 
   // Aggressive on slow rollers near goal line
-  const ballNearGoalLine = !ball.owner && Math.abs(ball.x - goalLineX) < 2 && ballSpeed < 6;
+  const ballNearGoalLine = !ball.owner && Math.abs(ball.x - goalLineX) < 3 && ballSpeed < 6;
 
-  if (ballHeadingToGoal && ballDist < 35) {
-    // Shot detected — react after delay
+  if (ballHeadingToGoal && ballDist < 45) {
+    // Shot detected — react after a realistic delay (~20 ticks = 110ms at 180t/s)
     keeper.shotReaction = (keeper.shotReaction || 0) + 1;
-    if (keeper.shotReaction > 5) {
-      // Project where ball crosses goal line (with inaccuracy)
-      const t = Math.abs(goalLineX - ball.x) / Math.abs(ball.vx);
-      const projY = ball.y + ball.vy * t;
-      // Keeper misjudges by up to 7m
-      const error = (Math.random() - 0.5) * 14;
-      targetY = clamp(projY + error, goalCenterY - 6, goalCenterY + 6);
-      maxSpeed = 5; // diving speed
+    if (keeper.shotReaction > 20) {
+      // Project where ball will cross the goal line.
+      // Error is committed ONCE (on tick 21) and stored — not re-randomized every frame.
+      // Re-randomizing each tick averages to zero error (keeper tracks perfectly).
+      if (keeper.shotReaction === 21) {
+        const tI = Math.abs(goalLineX - ball.x) / Math.max(Math.abs(ball.vx), 0.1);
+        const projY = ball.y + ball.vy * tI;
+        keeper.commitY = clamp(projY + (Math.random() - 0.5) * 8, goalCenterY - 6, goalCenterY + 6);
+      }
+      targetY = keeper.commitY ?? goalCenterY;
+      // Narrow angle for close shots: step forward slightly
+      if (ballDist < 15) {
+        targetX = lerp(goalX, ball.x, 0.12);
+      }
+      maxSpeed = 6;  // fast but not superhuman; ~1.5m coverage from reaction point
     } else {
-      // Reaction window: freeze in place (can't read the shot yet)
+      // Reaction window: hold position
       targetY = keeper.y;
       maxSpeed = 1;
     }
   } else if ((ballDist < 12 && !ball.owner) || ballNearGoalLine) {
-    // Loose ball nearby or slow roller near goal line — come out more aggressively
+    // Loose ball nearby or slow roller near goal line — come out to collect
     targetX = lerp(goalX, ball.x, ballNearGoalLine ? 0.5 : 0.1);
     targetY = lerp(goalCenterY, ball.y, ballNearGoalLine ? 0.5 : 0.15);
     maxSpeed = ballNearGoalLine ? 7 : 5;
     keeper.shotReaction = 0;
+    keeper.commitY = null;
   } else {
-    // Normal: track ball Y position very lazily
+    // Normal: track ball laterally within post range
     targetY = clamp(ball.y, goalCenterY - 6, goalCenterY + 6);
     maxSpeed = 2.5;
     keeper.shotReaction = 0;
+    keeper.commitY = null;
+    keeper.commitY = null;
   }
 
-  // Move toward target — direct position approach (no velocity smoothing tricks)
+  // Move toward target
   const dx = targetX - keeper.x;
   const dy = targetY - keeper.y;
   const d = Math.hypot(dx, dy);
@@ -739,22 +846,26 @@ function updateKeeper(keeper, opponents, dt) {
     keeper.vy *= 0.8;
   }
 
-  // Deflection: keeper near fast ball → deflect instead of catch
+  // Deflection: keeper physically in the ball's path — radius 0.8m means a real block,
+  // not a soft parry from 2m away. Shots that beat the keeper's position go in.
   const ballSpd = Math.hypot(ball.vx, ball.vy);
-  if (ballDist < 1.8 && ballSpd > 12 && !ball.owner && keeper.keeperNoPickUp <= 0 && !(ball.shotInFlight > 0) && Math.random() < 0.5) {
+  if (ballDist < 0.8 && ballSpd > 8 && !ball.owner && keeper.keeperNoPickUp <= 0) {
     ball.vx *= -0.3 + (Math.random() - 0.5) * 0.4;
     ball.vy += (Math.random() - 0.5) * 8;
     ball.vz = Math.random() * 2;
-    keeper.keeperNoPickUp = 51; // can't immediately re-grab (scaled 30 * 1.714)
+    ball.shotInFlight = 0;
+    keeper.keeperNoPickUp = 51;
   }
 
-  // Save: pick up the ball if close enough (increased radius for slow rollers)
-  const effectivePickup = ballSpd > 12 ? 0.4 : (ballNearGoalLine ? 1.0 : 0.55);
-  if (ballDist < effectivePickup && !ball.owner && keeper.keeperNoPickUp <= 0 && !(ball.shotInFlight > 0)) {
+  // Save: pick up if close enough — NOT blocked by shotInFlight
+  const effectivePickup = ballSpd > 10 ? 1.5 : (ballNearGoalLine ? 1.2 : 0.6);
+  if (ballDist < effectivePickup && !ball.owner && keeper.keeperNoPickUp <= 0) {
+    ball.shotInFlight = 0;  // clear shot state
     ball.owner = keeper;
     keeper.hasBall = true;
     keeper.holdTime = 0;
     keeper.keeperHandled = true;
+    ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
     const oppTeam = keeper.side === 1 ? teamB : teamA;
     for (const opp of oppTeam) {
       const od = dist(opp, keeper);
@@ -818,7 +929,26 @@ function findBestPass(player, teammates, opponents, attackDir) {
 
     const score = openness * 0.35 + forward * 0.35 + posValue * 0.2 + (1 - d / 55) * 0.1;
 
-    if (score > bestScore) { bestScore = score; bestTarget = mate; }
+    // Defensive/holding players should recycle short — not launch lofts over midfield.
+    // CB/LB/RB/DM: strong penalty beyond 22m. CM: softer beyond 28m.
+    // GK: tight — prefers throws within 20m to nearby teammates.
+    // AM: modest penalty beyond 30m so they play through rather than bombing long.
+    let distPenalty = 0;
+    if (player.isKeeper && d > 20) {
+      distPenalty = ((d - 20) / 25) * 0.80;
+    } else if (['CB', 'LB', 'RB', 'DM'].includes(player.role) && d > 15) {
+      // Steep ramp starting at 15m: CB/DM should play through DM/LB not launch 25m lofts.
+      // At 25m penalty = 0.47 — strong enough to override a well-placed AM target.
+      distPenalty = Math.min(((d - 15) / 15) * 0.70, 0.70);
+    } else if (player.role === 'CM' && d > 28) {
+      distPenalty = ((d - 28) / 27) * 0.40;
+    } else if (player.role === 'AM' && d > 30) {
+      distPenalty = ((d - 30) / 25) * 0.35;
+    }
+
+    const finalScore = score - distPenalty;
+
+    if (finalScore > bestScore) { bestScore = finalScore; bestTarget = mate; }
   }
 
   return { target: bestTarget, score: bestScore };
@@ -830,7 +960,7 @@ function canShoot(player, opponents, attackDir) {
   const distToGoal = Math.abs(player.x - oppGoalX);
   const angleToGoal = Math.abs(player.y - goalY);
 
-  if (distToGoal > 32 || angleToGoal > 25) return false;
+  if (distToGoal > 42 || angleToGoal > 25) return false;
   if (player.shotCooldown > 0) return false;
 
   let blocked = 0;
@@ -841,10 +971,11 @@ function canShoot(player, opponents, attackDir) {
       const projX = player.x + t * (oppGoalX - player.x);
       const projY = player.y + t * (goalY - player.y);
       const clearance = Math.hypot(opp.x - projX, opp.y - projY);
-      if (clearance < 2) blocked++;
+      if (clearance < 1.5) blocked++;
     }
   }
-  return blocked < (distToGoal < 18 ? 5 : distToGoal < 25 ? 3 : 2);
+  // Allow shooting through 6 defenders — only a dense wall should block a shot
+  return blocked < (distToGoal < 18 ? 8 : 6);
 }
 
 function getSpaceAhead(player, opponents, attackDir) {
@@ -867,19 +998,21 @@ function getSpaceAhead(player, opponents, attackDir) {
 // Each action is scored 0–1, then the best is picked.
 
 const UTIL_WEIGHTS = {
-  pass:    1.0,   // overall weight for passing
-  shoot:   1.0,   // overall weight for shooting
-  dribble: 1.0,   // overall weight for dribbling
-  clear:   1.0,   // overall weight for clearing
+  pass:    0.80,
+  shoot:   0.75,  // tuned: keep shots in penalty area only
+  dribble: 1.0,
+  clear:   1.0,
 };
 
 // Decision interval in game-seconds (matchTime units)
 // Shorter when under pressure, longer when safe
 function getDecisionInterval(closestOppDist) {
-  if (closestOppDist < 3)  return 0.15;  // ~0.45 real-sec, heavy pressure
-  if (closestOppDist < 6)  return 0.3;   // ~0.9 real-sec, moderate pressure
-  if (closestOppDist < 10) return 0.5;   // ~1.5 real-sec, light pressure
-  return 0.8;                             // ~2.4 real-sec, lots of space
+  // matchTime advances 3 units/real-second (BASE_TICKS=3, DT=1/60, 60fps).
+  // Clock divisor is 12, so targets in real-seconds × 3 × (4/3) = × 4.
+  if (closestOppDist < 3)  return 0.6;   // ~0.15 real-sec under heavy pressure
+  if (closestOppDist < 6)  return 1.2;   // ~0.30 real-sec moderate pressure
+  if (closestOppDist < 10) return 2.0;   // ~0.50 real-sec light pressure
+  return 3.2;                             // ~0.80 real-sec lots of space
 }
 
 function scorePass(player, teammates, opponents, attackDir) {
@@ -897,15 +1030,27 @@ function scorePass(player, teammates, opponents, attackDir) {
   for (const opp of opponents) { const d = dist(player, opp); if (d < closestOppDist) closestOppDist = d; }
   if (closestOppDist < 5) s += (5 - closestOppDist) / 5 * 0.3;
 
+  // Penalty for same-role short passes (e.g. ST→ST, CM→CM) — must exceed pressure bonus.
+  const passDist = Math.hypot(target.x - player.x, target.y - player.y);
+  if (target.role === player.role && passDist < 20) s -= 0.55;
+
+  // Penalty for backward passes when in the attacking half — all outfield roles
+  // should look to progress the ball, not recycle behind the ball.
+  const progressX = (target.x - player.x) * (attackDir === 1 ? 1 : -1);
+  const inAttackingHalf = (attackDir === 1 ? player.x > PITCH.w * 0.45 : player.x < PITCH.w * 0.55);
+  if (!player.isKeeper && inAttackingHalf && progressX < -10) s -= 0.40;
+  else if (['AM', 'LW', 'RW', 'ST'].includes(player.role) && progressX < -8) s -= 0.35;
+
   // Hold time bonus — increasingly want to pass the longer we hold
   const holdSec = (player.holdTime || 0) * 0.01667;
-  s += clamp(holdSec / 3, 0, 0.2);
+  s += clamp(holdSec / 3, 0, 0.1); // reduced cap (was 0.2)
 
   // Midfield boost — passing is the primary midfield action
-  if (distToGoal > 35) s += 0.15;
+  if (distToGoal > 35) s += 0.05; // reduced from 0.15
 
-  // Penalty for being very close to goal (prefer shooting there)
-  if (distToGoal < 15) s -= 0.2;
+  // Strong penalty for being in shooting range: shoot instead
+  if (distToGoal < 25) s -= 0.25;
+  if (distToGoal < 15) s -= 0.20; // stacks: -0.45 total inside 15m
 
   return { score: clamp(s, 0, 1), target };
 }
@@ -916,22 +1061,36 @@ function scoreShoot(player, opponents, attackDir) {
   const angleToGoal = Math.abs(player.y - PITCH.h / 2);
 
   if (player.shotCooldown > 0) return 0;
-  if (distToGoal > 32 || angleToGoal > 25) return 0;
+  if (angleToGoal > 25) return 0;
   if (!canShoot(player, opponents, attackDir)) return 0;
 
-  // Distance curve: peaks close, drops off quickly
-  let s = clamp(1 - distToGoal / 35, 0, 1) * 0.7;
+  // Per-role shooting range: beyond this distance the score is 0.
+  // Calibrated so shots happen primarily inside the penalty area (~16m).
+  // ST range 28m: at 16m score=0.43*0.90=0.39 beats penalised pass; at 22m score=0.21 loses to pass.
+  const shootRange = {
+    GK: 0,  CB: 12, LB: 12, RB: 12,
+    DM: 18, CM: 22, LM: 20, RM: 20,
+    AM: 26, LW: 20, RW: 20, ST: 28,
+  };
+  const maxDist = shootRange[player.role] ?? 20;
+  if (distToGoal > maxDist) return 0;
 
-  // Angle penalty: straight-on is best
-  s -= clamp(angleToGoal / 20, 0, 0.3);
+  // Linear: 1.0 at the goal line, 0.0 at maxDist.
+  // At 18m for ST (maxDist=30): s = 0.40 → *1.20 = 0.48 – beats penalised pass near goal.
+  // At 25m for ST:             s = 0.167 → *1.20 = 0.20 – pass (0.32) wins.
+  let s = 1 - distToGoal / maxDist;
 
-  // Close-range bonus
-  if (distToGoal < 12) s += 0.25;
-  if (distToGoal < 7) s += 0.2;
+  // Non-forward roles: pull back / square rather than shoot from distance
+  if (['CM','LM','RM','DM'].includes(player.role)) s *= 0.65;
+  if (['CB','LB','RB'].includes(player.role)) s *= 0.50;
 
-  // Hold time — force shot if stuck near goal
-  const holdSec = (player.holdTime || 0) * 0.01667;
-  if (distToGoal < 10 && holdSec > 2) s += 0.3;
+  // Angle penalty: rewards central positions
+  s -= clamp(angleToGoal / 20, 0, 0.25);
+
+  // Hold-time override: force a shot if stuck in a dangerous area too long
+  const holdSec = (player.holdTime || 0) / 180;
+  if (distToGoal < 15 && holdSec > 1.0) s += 0.30;
+  if (distToGoal < 22 && holdSec > 2.0) s += 0.20;
 
   return clamp(s, 0, 1);
 }
@@ -977,12 +1136,14 @@ function scoreClear(player, opponents) {
   if (distToOwnGoal > 35) return 0;
 
   let s = 0;
-  // Danger zone: own third + pressure
-  if (distToOwnGoal < 20 && closestOppDist < 5) s = 0.6;
-  if (distToOwnGoal < 12 && closestOppDist < 3) s = 0.85;
+  // Danger zone: own third + pressure.
+  // Reduced from (0.6/0.85) so pass (0.55-0.65) wins when a decent option exists.
+  // Clear still wins in extreme danger (opp at 2m, very deep).
+  if (distToOwnGoal < 20 && closestOppDist < 5) s = 0.44;
+  if (distToOwnGoal < 12 && closestOppDist < 3) s = 0.65;
 
-  // CB bonus for clearing
-  if (player.role === 'CB' || player.role === 'LB' || player.role === 'RB') s += 0.1;
+  // Tiny CB bonus — last resort only
+  if (player.role === 'CB' || player.role === 'LB' || player.role === 'RB') s += 0.04;
 
   return clamp(s, 0, 1);
 }
@@ -1055,8 +1216,8 @@ function updateOnBall(player, teammates, opponents, dt) {
     if (d < closestOppDist) closestOppDist = d;
   }
 
-  // First touch: always dribble for 0.3s to settle the ball
-  if (player.holdTime < 20) {
+  // First touch: dribble for ~8 ticks (~0.04s at 180 ticks/sec) to settle the ball
+  if (player.holdTime < 8) {
     player.utilAction = 'dribble';
     player.utilScores = { pass: 0, shoot: 0, dribble: 1, hold: 0, clear: 0 };
     doDribble(player, opponents, attackDir);
@@ -1093,11 +1254,12 @@ function updateOnBall(player, teammates, opponents, dt) {
   };
   player.utilScores = scores;
 
-  // Pick highest scoring action (with small random noise for variety)
+  // Pick highest scoring action (noise only applied to nonzero scores to prevent
+  // a zero-score shoot from randomly winning due to 0.08 noise).
   let bestAction = 'dribble';
   let bestScore = -1;
   for (const [action, sc] of Object.entries(scores)) {
-    const noisy = sc + Math.random() * 0.08; // small noise
+    const noisy = sc > 0 ? sc + Math.random() * 0.08 : 0;
     if (noisy > bestScore) { bestScore = noisy; bestAction = action; }
   }
 
@@ -1136,7 +1298,6 @@ function doPass(from, to) {
   const t = from.side === 1 ? telem.red : telem.blue;
   t.passes++;
   if (from.holdTime) { t.holdTotal += from.holdTime; t.holdCount++; }
-  telemEvent(from.side === 1 ? 'RED' : 'BLUE', 'PASS', `${from.role}→${to.role} (${Math.round(dist(from,to))}m)`);
   from.hasBall = false;
   from.holdTime = 0;
   from.intention = null;
@@ -1147,21 +1308,31 @@ function doPass(from, to) {
   passTargetPlayer = to;
   lastPasserPlayer = from;
   lastPasserSide = from.side;
-  // Record this pass target for anti-loop (120 frame cooldown)
+  // Anti-loop: can't pass back to the player who just passed to us
   recentPassTargets = recentPassTargets.filter(r => r.timer > 0);
-  recentPassTargets.push({ player: to, timer: 120 });
+  recentPassTargets.push({ player: to, timer: 180 }); // ~1 real-sec: prevents ping-pong, enough reset time
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const d = Math.hypot(dx, dy);
-  // --- Pass power tuned for realism ---
-  const power = clamp((6 + d * 0.18) * 0.5, 3, 7.5);
+  // Pass power: aim the ball past the target so it arrives with speed.
+  // power = d*1.5 means total theoretical travel = d*1.5/0.7 = 2.14d.
+  // Ball reaches the target position in ~0.9 real-sec regardless of distance.
+  const power = clamp(d * 1.5, 5, 35);
   ball.vx = (dx / d) * power;
   ball.vy = (dy / d) * power;
-  const naiveFrames = d / power * 60 * 0.7;
-  passGrace = Math.max(20, Math.ceil(naiveFrames * 2.5));
+  // Grace period: d*6 ticks ≈ actual travel time at 180 ticks/sec, plus 30% margin
+  passGrace = Math.max(30, Math.ceil(d * 6));
+  // Lofted passes: flat under 12m, fully lofted over 34m.
+  // vz=16 gives z_peak ≈6.4 units (see drawBall lift*5 → ~32px arc at 34m).
+  const loftFactor = clamp((d - 12) / 22, 0, 1);
+  ball.vz = loftFactor * 16;
+  const passType = loftFactor > 0.5 ? 'LOFT' : 'PASS';
+  telemEvent(from.side === 1 ? 'RED' : 'BLUE', passType, `${from.role}→${to.role} (${Math.round(d)}m)`);
   passTrail = {
     x1: from.x, y1: from.y, x2: to.x, y2: to.y,
-    color: from.side === 1 ? 'rgba(255,120,120,0.9)' : 'rgba(120,120,255,0.9)',
+    color: loftFactor > 0.5
+      ? (from.side === 1 ? 'rgba(255,200,80,0.9)' : 'rgba(120,200,255,0.9)')
+      : (from.side === 1 ? 'rgba(255,120,120,0.9)' : 'rgba(120,120,255,0.9)'),
     life: 45,
   };
 }
@@ -1186,7 +1357,7 @@ function doShoot(player, goalX) {
   player.hasBall = false;
   player.holdTime = 0;
   player.intention = null;
-  player.shotCooldown = 150;
+  player.shotCooldown = 1620; // ~9 real-sec per player — targets ~14 shots/team/90min
   ball.owner = null;
   // Ground shots more likely at close range
   ball.vz = Math.random() < 0.4 ? (Math.random() * 0.2) : (0.8 + Math.random() * 1.2);
@@ -1194,13 +1365,11 @@ function doShoot(player, goalX) {
   lastPasserSide = player.side;
   lastPasserPlayer = player;
   passTargetPlayer = null; // no pass target for shots
-  player.justPassed = 200;
+  player.justPassed = 90;
   // Prevent ALL players from intercepting during shot flight
   ball.shotInFlight = 26;
-  // Prevent defending GK from catching the shot
-  const defTeam = (goalX < PITCH.w / 2) ? teamA : teamB;
-  const defKeeper = defTeam.find(p => p.isKeeper);
-  if (defKeeper) defKeeper.keeperNoPickUp = 14;
+  // Brief reaction delay for defending keeper (do NOT use keeperNoPickUp — keeper must be
+  // able to physically save the shot; see updateKeeper)
   passTrail = {
     x1: player.x, y1: player.y, x2: goalX, y2: goalY,
     color: '#ff0', life: 25,
@@ -1228,9 +1397,15 @@ function doDribble(player, opponents, attackDir) {
     return;
   }
 
-  // Main direction: toward opponent goal — strong forward bias
-  // --- Reduced dribble speed for realism ---
-  let vx = (toGoalX > 0 ? 1 : -1) * 3.5;
+  // Main direction: toward opponent goal
+  const topSpeed = getRoleSpeed(player.role);
+  // Ball-carrying penalty: small but real — carrier is slightly slower than a free runner.
+  // Drops from 75% of top speed on first touch to 65% after 2+ seconds.
+  // A ST (9.0 m/s) carries at 6.75→5.85 m/s while a chasing CB runs at 7.5 m/s — fair contest.
+  const holdTick = player.holdTime || 0;
+  const carryFactor = holdTick < 360 ? lerp(0.75, 0.65, holdTick / 360) : 0.65;
+  const dribbleSpeed = topSpeed * carryFactor;
+  let vx = (toGoalX > 0 ? 1 : -1) * dribbleSpeed;
   let vy = 0;
 
   // Minimal lateral drift — forward is king
@@ -1260,34 +1435,45 @@ function doDribble(player, opponents, attackDir) {
   ball.y = player.y;
 }
 
-function clearBall(player) {
+function clearBall(player, forced = false) {
   // Defensive clear: kick ball far away toward touchline or upfield
   const t = player.side === 1 ? telem.red : telem.blue;
   t.clears++;
-  telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'CLEAR', `${player.role}`);
+  telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'CLEAR',
+    forced ? `FORCED by ${player.role}` : `${player.role}`);
   player.hasBall = false;
   player.holdTime = 0;
   player.intention = null;
+  player.justPassed = 60;      // prevent clearer from immediately reclaiming their own ball
   ball.owner = null;
+  lastPasserPlayer = player;   // checkIntercepts will block clearer like a normal pass
+  passTargetPlayer = null;     // no intended recipient
   const dir = player.side === 1 ? 1 : -1;
   ball.vx = dir * (22 + Math.random() * 8);
   ball.vy = (Math.random() - 0.5) * 14;
   ball.vz = 4 + Math.random() * 2;
-  passGrace = 20;
+  passGrace = 60;               // ~0.33 real-sec: ball travels ~6.5m before opponents can touch
   lastPasserSide = player.side;
-  // Always log clear event in telemetry and event log if forced
-  if (arguments.length > 1 && arguments[1]) {
-    if (typeof telemEvent === 'function') telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'CLEAR', `FORCED by ${player.role}`);
-  }
 }
 
 // ========== Player AI Tick ==========
+
+// Role-based top speed (m/s). Reflects real-world differences:
+// wingers and strikers are fastest; CBs and GKs are slowest.
+function getRoleSpeed(role) {
+  const map = {
+    GK: 6.0,
+    CB: 7.5, LB: 8.5, RB: 8.5,
+    DM: 8.0, CM: 8.5, LM: 9.0, RM: 9.0,
+    AM: 8.5, LW: 9.5, RW: 9.5, ST: 9.0,
+  };
+  return map[role] ?? 8.5;
+}
 
 function smoothVelocity(player, desiredVx, desiredVy, blendRate) {
   player.vx = lerp(player.vx, desiredVx, blendRate);
   player.vy = lerp(player.vy, desiredVy, blendRate);
 }
-
 function getSecondClosestToBall(team) {
   let best = null, bestD = Infinity, second = null, secondD = Infinity;
   for (const p of team) {
@@ -1333,7 +1519,13 @@ function updatePlayerAI(player, teammates, opponents, dt) {
 
     const closest = getClosestToBall(myTeam);
     const second = getSecondClosestToBall(myTeam);
-    if ((player === closest || (player === second && dist(player, ball) < 18)) && !player.justPassed) {
+    // Attackers (high mindset) press only up to 65% of the pitch — don't chase
+    // all the way into the opponent's defensive third.
+    const playerMindset = getMindset(player.role);
+    const pressLineX = player.side === 1 ? PITCH.w * 0.65 : PITCH.w * 0.35;
+    const ballBeyondPressLine = player.side === 1 ? ball.x > pressLineX : ball.x < pressLineX;
+    const allowChase = !(playerMindset > 0.65 && ballBeyondPressLine);
+    if ((player === closest || (player === second && dist(player, ball) < 18)) && !player.justPassed && allowChase) {
       player.aiState = 'chase';
       const dx = ball.x - player.x;
       const dy = ball.y - player.y;
@@ -1352,6 +1544,28 @@ function updatePlayerAI(player, teammates, opponents, dt) {
       }
       return;
     }
+  }
+
+  // If this player is the intended pass recipient, sprint toward the ball to collect it.
+  // For lofted balls (ball.z > 2) that are still far away, hold position — the ball comes
+  // to you. Running toward a loft causes the receiver to sprint past midfield chasing
+  // the incoming trajectory, ending up far out of shooting range.
+  if (player === passTargetPlayer && passGrace > 0 && !player.hasBall) {
+    const ballDist2D = Math.hypot(ball.x - player.x, ball.y - player.y);
+    if (ball.z > 2 && ballDist2D > 15) {
+      // Ball is airborne and far — hold position, let ball arc down to you
+      smoothVelocity(player, 0, 0, 0.15);
+      player.aiState = 'receive';
+      return;
+    }
+    const bdx = ball.x - player.x;
+    const bdy = ball.y - player.y;
+    const bd = Math.hypot(bdx, bdy);
+    if (bd > 0.3) {
+      smoothVelocity(player, (bdx / bd) * 10, (bdy / bd) * 10, 0.35);
+    }
+    player.aiState = 'receive';
+    return;
   }
 
   // On-ball
@@ -1382,7 +1596,9 @@ function updatePlayerAI(player, teammates, opponents, dt) {
   const d = Math.hypot(dx, dy);
   if (d > 0.5) {
     const urgency = clamp(normalizedClamp(d, 1, 12), 0.4, 1);
-    const maxSpeed = possession ? 7 : 8;
+    const topSpeed = getRoleSpeed(player.role);
+    // Defenders sprint harder without ball; attackers similar but slightly less
+    const maxSpeed = possession ? topSpeed * 0.92 : topSpeed;
     smoothVelocity(player, (dx / d) * maxSpeed * urgency, (dy / d) * maxSpeed * urgency, 0.2);
   } else {
     smoothVelocity(player, 0, 0, 0.15);
@@ -1402,8 +1618,10 @@ function checkTackles() {
   for (const opp of oppTeam) {
     if (opp.tackledImmunity > 0) continue;
     const d = dist(opp, ball);
-    if (d < 3.0) {
-      const chance = 0.0006 + (3.0 - d) * 0.0004;
+    if (d < 4.0) {
+      // Calibrated for 180 ticks/sec (3 ticks/frame @ 60fps).
+      // ~1.5s expected hold at d=1m, ~2.8s at d=4m with one opponent.
+      const chance = 0.003 + (4.0 - d) * 0.001;
       if (Math.random() < chance) {
         owner.hasBall = false;
         owner.holdTime = 0;
@@ -1417,7 +1635,7 @@ function checkTackles() {
         ball.vy = Math.sin(awayAngle) * 12;
         ball.vz = 0.5;
         ball.owner = null;
-        tackleCooldown = 500;
+        tackleCooldown = 10; // minimal global lockout — per-player tackledImmunity handles re-tackle protection
         passTargetPlayer = null;
         return;
       }
@@ -1432,7 +1650,7 @@ function checkIntercepts() {
   // Priority: intended pass target gets larger pickup radius
   if (passTargetPlayer && !passTargetPlayer.hasBall && passTargetPlayer.tackledImmunity <= 0) {
     const td = dist(passTargetPlayer, ball);
-    if (td < 2.5) {
+    if (td < 4.0) {
       ball.owner = passTargetPlayer;
       passTargetPlayer.hasBall = true;
       passTargetPlayer.holdTime = 0;
@@ -1462,6 +1680,8 @@ function checkIntercepts() {
       p.hasBall = true;
       p.holdTime = 0;
       p.intention = null;
+      p.nextDecisionTime = 0;  // ensure fresh decision — stale utilAction causes immediate re-pass
+      p.utilAction = null;
       ball.vx = 0; ball.vy = 0;
       passGrace = 0;
       passTargetPlayer = null;
@@ -1505,16 +1725,25 @@ function awardCornerKick(keeperSide) {
 
 // --- Goal check ---
 function checkGoal() {
-  const goalHalfW = 5;
+  const goalHalfW = 3.66; // FIFA: 7.32m wide goal → 3.66m half; matches drawn posts
   const goalYMin = PITCH.h / 2 - goalHalfW;
   const goalYMax = PITCH.h / 2 + goalHalfW;
 
   if (ball.x <= 0.5 && ball.y > goalYMin && ball.y < goalYMax) {
-    const offCenter = Math.abs(ball.y - PITCH.h / 2) / goalHalfW;
-    const saveChance = 0.93 - offCenter * 0.25;
+    // Save chance is position-based: how close is the keeper to the ball's crossing point?
+    const keeper = teamA.find(p => p.isKeeper);
+    const keeperDist = keeper ? Math.abs(keeper.y - ball.y) : 99;
+    // Realistic save table: keeper must be well-positioned to save.
+    // At 3m off-line (near post) keeper has a ~35% chance — makes near-post shots dangerous.
+    // Save table tuned for ~10% conversion (MLS avg).
+    // Keeper within 1m = near-certain save; 1-3m = decent chance; >5m = rare reflex save.
+    const saveChance = keeperDist < 1.0 ? 0.95
+                     : keeperDist < 2.0 ? 0.88
+                     : keeperDist < 3.5 ? 0.75
+                     : keeperDist < 5.5 ? 0.55
+                     : 0.22;
     if (Math.random() < saveChance) {
       ball.shotInFlight = 0;
-      const keeper = teamA.find(p => p.isKeeper);
       if (keeper) {
         ball.x = keeper.x; ball.y = keeper.y;
         ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
@@ -1528,11 +1757,15 @@ function checkGoal() {
     updateScoreboard();
     doKickOff(teamA);
   } else if (ball.x >= PITCH.w - 0.5 && ball.y > goalYMin && ball.y < goalYMax) {
-    const offCenter = Math.abs(ball.y - PITCH.h / 2) / goalHalfW;
-    const saveChance = 0.93 - offCenter * 0.25;
+    const keeper = teamB.find(p => p.isKeeper);
+    const keeperDist = keeper ? Math.abs(keeper.y - ball.y) : 99;
+    const saveChance = keeperDist < 1.0 ? 0.95
+                     : keeperDist < 2.0 ? 0.88
+                     : keeperDist < 3.5 ? 0.75
+                     : keeperDist < 5.5 ? 0.55
+                     : 0.22;
     if (Math.random() < saveChance) {
       ball.shotInFlight = 0;
-      const keeper = teamB.find(p => p.isKeeper);
       if (keeper) {
         ball.x = keeper.x; ball.y = keeper.y;
         ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
@@ -1619,6 +1852,13 @@ function resetBallInBounds() {
 
 // --- Physics tick ---
 function tick(dt) {
+  // 90 minutes = matchTime 1080 (12 units per match-minute)
+  if (matchTime >= 1080) {
+    paused = true;
+    document.getElementById('btnPause').textContent = '▶ Play';
+    telemEvent('RED', 'FULL TIME', `RED ${score[0]} – ${score[1]} BLUE`);
+    return;
+  }
   matchTime += dt;
   if (kickOffCooldown > 0) kickOffCooldown--;
   if (passGrace > 0) passGrace--;
@@ -1678,116 +1918,52 @@ function tick(dt) {
 // RENDERING
 // ============================================================
 
+// Load field background image — all markings are baked into the image
+const fieldImage = new Image();
+fieldImage.src = 'Copilot_20260407_161211.png';
+
 function drawPitch() {
-  // Grass base (PSL #2e8b2e)
-  ctx.fillStyle = '#2e8b2e';
-  ctx.fillRect(0, 0, W, H);
-
-  // Mowing stripes (PSL style — alternating lighter bands)
-  const stripeW = (W - 40) / 12;
-  for (let i = 0; i < 12; i++) {
-    if (i % 2 === 0) {
-      ctx.fillStyle = 'rgba(76,175,80,0.10)';
-      ctx.fillRect(OX + i * stripeW, OY, stripeW, H - 40);
+  if (fieldImage.complete && fieldImage.naturalWidth > 0) {
+    // Scale image to cover the full canvas while preserving aspect ratio (cover fit)
+    const ir = fieldImage.naturalWidth / fieldImage.naturalHeight;
+    const cr = W / H;
+    let dw, dh, dx, dy;
+    if (ir > cr) {
+      // image is wider relative to canvas — fit by height
+      dh = H; dw = H * ir;
+      dx = (W - dw) / 2; dy = 0;
+    } else {
+      // image is taller relative to canvas — fit by width
+      dw = W; dh = W / ir;
+      dx = 0; dy = (H - dh) / 2;
     }
+    ctx.drawImage(fieldImage, dx, dy, dw, dh);
+  } else {
+    // Fallback solid green while image loads
+    ctx.fillStyle = '#2e8b2e';
+    ctx.fillRect(0, 0, W, H);
   }
 
-  // Turf noise (PSL scatters 1800 tiny rects)
-  for (let i = 0; i < 600; i++) {
-    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(53,143,53,0.12)' : 'rgba(39,117,39,0.12)';
-    const gx = OX + Math.random() * (W - 40);
-    const gy = OY + Math.random() * (H - 40);
-    ctx.fillRect(gx, gy, 1 + Math.random() * 2, 1 + Math.random() * 2);
-  }
-
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1.5;
-
-  // Outline
-  const [lx, ly] = toScreen(0, 0);
-  const [rx, ry] = toScreen(PITCH.w, PITCH.h);
-  ctx.strokeRect(lx, ly, rx - lx, ry - ly);
-
-  // Center line
-  const [cx, cy1] = toScreen(PITCH.w / 2, 0);
-  const [, cy2] = toScreen(PITCH.w / 2, PITCH.h);
-  ctx.beginPath();
-  ctx.moveTo(cx, cy1);
-  ctx.lineTo(cx, cy2);
-  ctx.stroke();
-
-  // Center circle
-  const [ccx, ccy] = toScreen(PITCH.w / 2, PITCH.h / 2);
-  ctx.beginPath();
-  ctx.arc(ccx, ccy, 9.15 * SCALE_X, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Center dot
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(ccx, ccy, 2, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Penalty areas (16.5m × 40.3m)
-  const paW = 16.5, paH = 40.3;
-  // Left
-  const [pa1x, pa1y] = toScreen(0, (PITCH.h - paH) / 2);
-  const [pa1x2, pa1y2] = toScreen(paW, (PITCH.h + paH) / 2);
-  ctx.strokeRect(pa1x, pa1y, pa1x2 - pa1x, pa1y2 - pa1y);
-  // Right
-  const [pa2x, pa2y] = toScreen(PITCH.w - paW, (PITCH.h - paH) / 2);
-  const [pa2x2, pa2y2] = toScreen(PITCH.w, (PITCH.h + paH) / 2);
-  ctx.strokeRect(pa2x, pa2y, pa2x2 - pa2x, pa2y2 - pa2y);
-
-  // Goal areas (5.5m × 18.3m)
-  const gaW = 5.5, gaH = 18.3;
-  const [ga1x, ga1y] = toScreen(0, (PITCH.h - gaH) / 2);
-  const [ga1x2, ga1y2] = toScreen(gaW, (PITCH.h + gaH) / 2);
-  ctx.strokeRect(ga1x, ga1y, ga1x2 - ga1x, ga1y2 - ga1y);
-  const [ga2x, ga2y] = toScreen(PITCH.w - gaW, (PITCH.h - gaH) / 2);
-  const [ga2x2, ga2y2] = toScreen(PITCH.w, (PITCH.h + gaH) / 2);
-  ctx.strokeRect(ga2x, ga2y, ga2x2 - ga2x, ga2y2 - ga2y);
-
-  // Goals (nets behind the line — PSL style mesh)
-  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  // Goal-post markers drawn over image so they match exact game-coordinate goal openings.
+  // Each endpoint is resolved separately so the connecting line follows the field perspective angle.
   const goalHalfW = 3.66;
-  const [gn1x, gn1y] = toScreen(-2, PITCH.h / 2 - goalHalfW);
-  const [gn1x2, gn1y2] = toScreen(0, PITCH.h / 2 + goalHalfW);
-  ctx.fillRect(gn1x, gn1y, gn1x2 - gn1x, gn1y2 - gn1y);
-  // Net mesh lines
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 0.5;
-  for (let ny = gn1y; ny < gn1y2; ny += 3) { ctx.beginPath(); ctx.moveTo(gn1x, ny); ctx.lineTo(gn1x2, ny); ctx.stroke(); }
-  for (let nx = gn1x; nx < gn1x2; nx += 3) { ctx.beginPath(); ctx.moveTo(nx, gn1y); ctx.lineTo(nx, gn1y2); ctx.stroke(); }
-
-  const [gn2x, gn2y] = toScreen(PITCH.w, PITCH.h / 2 - goalHalfW);
-  const [gn2x2, gn2y2] = toScreen(PITCH.w + 2, PITCH.h / 2 + goalHalfW);
-  ctx.fillRect(gn2x, gn2y, gn2x2 - gn2x, gn2y2 - gn2y);
-  for (let ny = gn2y; ny < gn2y2; ny += 3) { ctx.beginPath(); ctx.moveTo(gn2x, ny); ctx.lineTo(gn2x2, ny); ctx.stroke(); }
-  for (let nx = gn2x; nx < gn2x2; nx += 3) { ctx.beginPath(); ctx.moveTo(nx, gn2y); ctx.lineTo(nx, gn2y2); ctx.stroke(); }
-
-  // Goal posts & crossbar (PSL gold #f5d000)
   ctx.fillStyle = '#f5d000';
   ctx.strokeStyle = '#f5d000';
   ctx.lineWidth = 2;
-  const [gp1x, gp1y] = toScreen(0, PITCH.h / 2 - goalHalfW);
-  ctx.fillRect(gp1x - 2, gp1y - 1, 4, 3);
-  const [, gp1y2] = toScreen(0, PITCH.h / 2 + goalHalfW);
-  ctx.fillRect(gp1x - 2, gp1y2 - 1, 4, 3);
-  ctx.beginPath(); ctx.moveTo(gp1x, gp1y); ctx.lineTo(gp1x, gp1y2); ctx.stroke(); // crossbar
 
-  const [gp2x, gp2y] = toScreen(PITCH.w, PITCH.h / 2 - goalHalfW);
-  ctx.fillRect(gp2x - 2, gp2y - 1, 4, 3);
-  const [, gp2y2] = toScreen(PITCH.w, PITCH.h / 2 + goalHalfW);
-  ctx.fillRect(gp2x - 2, gp2y2 - 1, 4, 3);
-  ctx.beginPath(); ctx.moveTo(gp2x, gp2y); ctx.lineTo(gp2x, gp2y2); ctx.stroke(); // crossbar
+  // Left goal line
+  const [gp1xa, gp1ya] = toScreen(0, PITCH.h / 2 - goalHalfW);
+  const [gp1xb, gp1yb] = toScreen(0, PITCH.h / 2 + goalHalfW);
+  ctx.fillRect(gp1xa - 2, gp1ya - 1, 4, 3);
+  ctx.fillRect(gp1xb - 2, gp1yb - 1, 4, 3);
+  ctx.beginPath(); ctx.moveTo(gp1xa, gp1ya); ctx.lineTo(gp1xb, gp1yb); ctx.stroke();
 
-  // Penalty spots
-  ctx.fillStyle = '#fff';
-  const [ps1x, ps1y] = toScreen(11, PITCH.h / 2);
-  ctx.beginPath(); ctx.arc(ps1x, ps1y, 2, 0, Math.PI * 2); ctx.fill();
-  const [ps2x, ps2y] = toScreen(PITCH.w - 11, PITCH.h / 2);
-  ctx.beginPath(); ctx.arc(ps2x, ps2y, 2, 0, Math.PI * 2); ctx.fill();
+  // Right goal line
+  const [gp2xa, gp2ya] = toScreen(PITCH.w, PITCH.h / 2 - goalHalfW);
+  const [gp2xb, gp2yb] = toScreen(PITCH.w, PITCH.h / 2 + goalHalfW);
+  ctx.fillRect(gp2xa - 2, gp2ya - 1, 4, 3);
+  ctx.fillRect(gp2xb - 2, gp2yb - 1, 4, 3);
+  ctx.beginPath(); ctx.moveTo(gp2xa, gp2ya); ctx.lineTo(gp2xb, gp2yb); ctx.stroke();
 }
 
 function drawPlayer(p) {
@@ -1801,7 +1977,7 @@ function drawPlayer(p) {
 
   // Determine sprite & animation frame
   const moving = Math.hypot(p.vx, p.vy) > 1;
-  const frame = Math.floor(matchTime * 8) % 4;
+  const frame = Math.floor(matchTime * 8 / 3) % 4; // ÷3 compensates for 3 ticks/frame so legs animate at natural rate
   let pattern;
   if (p.isKeeper) {
     pattern = moving ? PSL_KEEPER_RUN : PSL_KEEPER_IDLE;
@@ -1812,17 +1988,29 @@ function drawPlayer(p) {
     pattern = PSL_IDLE;
   }
 
-  const facing = p.vx >= 0 ? 1 : -1;
+  // Facing: follow velocity when moving; otherwise face toward the opponent's goal.
+  const defaultFacing = p.side === 1 ? 1 : -1;
+  const facing = Math.abs(p.vx) > 0.3 ? (p.vx > 0 ? 1 : -1) : defaultFacing;
   const teamCol = p.isKeeper
     ? { shirt: p.colors.keeper, pants: p.colors.keeperPants || p.colors.keeper, hair: p.colors.hair || '#1a1a1a', skin: p.colors.skin || '#d4a373' }
     : { shirt: p.colors.shirt, pants: p.colors.pants, hair: p.colors.hair || '#1a1a1a', skin: p.colors.skin || '#d4a373' };
-  drawPSLSprite(sx, sy, pattern, teamCol, facing, 1);
 
-  // Role label
+  // Perspective skew: lean the sprite along the field's convergence lines.
+  // At x=0 (left side) the top of the sprite shifts right; at x=PITCH.w (right) it shifts left;
+  // at centre there is no shear. Formula: dx per canvas-px of height = topInset*(1-2*tx)/(PITCH.h*SCALE_Y)
+  const shearPerPx = topInset * (1 - 2 * p.x / PITCH.w) / (PITCH.h * SCALE_Y);
+  ctx.save();
+  ctx.translate(sx, sy);
+  // ctx.transform(a,b,c,d,e,f): x' = x + c*y — negative c makes top shift right at left side
+  ctx.transform(1, 0, -shearPerPx, 1, 0, 0);
+  drawPSLSprite(0, 0, pattern, teamCol, facing, 1);
+
+  // Role label (in skewed space so it sits above the sprite naturally)
   ctx.fillStyle = 'rgba(255,255,200,0.85)';
   ctx.font = 'bold 8px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(p.role, sx, sy + 12);
+  ctx.fillText(p.role, 0, 12);
+  ctx.restore();
 }
 
 function drawBall() {
@@ -1843,16 +2031,18 @@ function drawBall() {
   }
 
   const [sx, sy] = toScreen(ball.x, ball.y);
-  const lift = ball.z * 3;
+  const lift = ball.z * 5; // 5px per z-unit: clears get ~3px, lofted passes ~32px
 
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  // Shadow grows fainter and spreads as ball rises
+  const shadowAlpha = Math.max(0.05, 0.35 - ball.z * 0.04);
+  const shadowW = 4 + ball.z * 0.3;
+  ctx.fillStyle = `rgba(0,0,0,${shadowAlpha})`;
   ctx.beginPath();
-  ctx.ellipse(sx, sy + 2, 4, 1.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx, sy + 2, shadowW, shadowW * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Ball
-  const r = 3 + ball.z * 0.5;
+  const r = 3 + ball.z * 0.3;
   ctx.fillStyle = '#fff';
   ctx.beginPath();
   ctx.arc(sx, sy - lift, r, 0, Math.PI * 2);
@@ -1869,8 +2059,8 @@ function drawBall() {
 }
 
 function drawHUD() {
-  const mins = Math.floor(matchTime / 3) % 90; // 3 real seconds = 1 match minute
-  const secs = Math.floor((matchTime / 3 * 60) % 60);
+  const mins = Math.floor(matchTime / 12) % 90; // 12 matchTime-units = 1 match minute (3×BASE_TICKS × DT 1/60 × 60fps = 3/sec → /12 = 4 real-sec/match-min)
+  const secs = Math.floor((matchTime / 12 * 60) % 60);
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(W / 2 - 36, 2, 72, 16);
   ctx.fillStyle = '#fff';
@@ -1990,10 +2180,18 @@ function render() {
 // GAME LOOP
 // ============================================================
 
+// Fractional step accumulator.
+// BASE_TICKS = 3 fires 3 sim ticks per RAF frame at 1×, giving players ~3 px/frame
+// movement which looks natural. Clock divisor 12 = 1 match-minute per 4 real-seconds
+// → a full 90-minute match takes ~6 real-minutes at 1×.
+const BASE_TICKS = 3;
+let stepAccum = 0;
 function gameLoop() {
   if (!paused) {
-    const steps = Math.max(1, Math.round(speedMult));
-    for (let i = 0; i < steps; i++) tick(DT * GAME_SPEED_SCALE);
+    stepAccum += speedMult * BASE_TICKS;
+    const steps = Math.floor(stepAccum);
+    stepAccum -= steps;
+    for (let i = 0; i < steps; i++) { if (paused) break; tick(DT * GAME_SPEED_SCALE); }
   }
   render();
   requestAnimationFrame(gameLoop);
@@ -2019,6 +2217,55 @@ document.addEventListener('keydown', e => {
     document.getElementById('btnPause').textContent = paused ? '▶ Play' : '⏸ Pause';
   }
 });
+
+// Field-calibration sliders — values persisted in localStorage
+(function () {
+  const STORE_KEY = 'psl_field_calib';
+
+  // Restore saved values into slider elements before wiring
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+    for (const [id, val] of Object.entries(saved)) {
+      const el = document.getElementById(id);
+      if (el) el.value = val;
+    }
+  } catch (e) {}
+
+  function wire(sliderId, labelId, setter) {
+    const sl = document.getElementById(sliderId);
+    const lb = document.getElementById(labelId);
+    const fire = () => {
+      const v = parseFloat(sl.value);
+      lb.textContent = v.toFixed(sl.step.includes('.') ? 2 : 0);
+      setter(v);
+      // Persist all slider values
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+        saved[sliderId] = sl.value;
+        localStorage.setItem(STORE_KEY, JSON.stringify(saved));
+      } catch (e) {}
+    };
+    sl.addEventListener('input', fire);
+    fire(); // apply restored (or default) value immediately
+    return { sl, fire };
+  }
+
+  const sliders = {
+    slOX: wire('slOX', 'lblOX', v => { OX       = v; }),
+    slOY: wire('slOY', 'lblOY', v => { OY       = v; }),
+    slSX: wire('slSX', 'lblSX', v => { SCALE_X  = v; }),
+    slSY: wire('slSY', 'lblSY', v => { SCALE_Y  = v; }),
+    slTI: wire('slTI', 'lblTI', v => { topInset = v; }),
+  };
+  // − / + step buttons
+  document.querySelectorAll('button.stp').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const { sl, fire } = sliders[btn.dataset.sl];
+      sl.value = parseFloat(sl.value) + parseFloat(sl.step || 1) * parseInt(btn.dataset.d);
+      fire();
+    });
+  });
+}());
 
 // Boot
 resetMatch();
