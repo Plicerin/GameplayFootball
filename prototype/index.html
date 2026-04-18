@@ -151,6 +151,7 @@ const PSL_IDLE = [
   '00000000111000000000',
   '00000000111110000000',
 ];
+// 8-frame side-view running cycle — loaded from player_running_frames.json.
 const PSL_RUN1 = [
   '00000000001111110000',
   '00000000001110000000',
@@ -188,6 +189,96 @@ const PSL_RUN2 = [
   '00000000000000000000',
 ];
 const PSL_RUN3 = [
+  '00000000011111100000',
+  '00000000011100000000',
+  '000011111HH111100000',
+  '00111111111100000000',
+  '00111001111100000000',
+  '00111001111111111110',
+  '0000000SSSSS00000000',
+  '0000000PPPPP00000000',
+  '0000000PPPPP00000000',
+  '0000PPPPPPPPPPP00000',
+  '00001110000111100000',
+  '00111110000111111000',
+  '11111000000000111000',
+  '11100000000000111000',
+  '00000000000000111110',
+  '00000000000000000000',
+];
+const PSL_RUN4 = [
+  '00000000000011111100',
+  '00000000000011100000',
+  '00000000111S111HHH00',
+  '00000111111111110000',
+  '00011111111111110000',
+  '00011100111111111100',
+  '00011100SSSSS0000000',
+  '00000000PPPPP0000000',
+  '00000PPPPPPPP0000000',
+  '00000PPPPPPPPPPP0000',
+  '00000111100011110000',
+  '01111111100011110000',
+  '01110000000011110000',
+  '01110000000011110000',
+  '00000000000011110000',
+  '00000000000011111100',
+];
+const PSL_RUN5 = [
+  '00000000000111111000',
+  '00000000000111000000',
+  '000000011111111HH000',
+  '00001111111111100000',
+  '00001111111111100000',
+  '00001111111111100000',
+  '00001111111111111000',
+  '0000000PPPPP00000000',
+  '0000000PPPPP00000000',
+  '0000000PPPPP00000000',
+  '00000001111100000000',
+  '00111111111100000000',
+  '00111000011100000000',
+  '00111000011100000000',
+  '00000000011100000000',
+  '00000000011111100000',
+];
+const PSL_RUN6 = [
+  '00000000001111110000',
+  '00000000001110000000',
+  '0000000011H1111H0000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000111110000000',
+  '00000000PPPPP0000000',
+  '00000000PPPPP0000000',
+  '00000000PPPPP0000000',
+  '00000000111110000000',
+  '00011111111110000000',
+  '00011100111000000000',
+  '00011100111000000000',
+  '00000000111000000000',
+  '00000000111110000000',
+];
+const PSL_RUN7 = [
+  '00000000001111110000',
+  '00000000001110000000',
+  '0000011111H1111H0000',
+  '00011111111110000000',
+  '00011111111110000000',
+  '00011111111110000000',
+  '00011111111111110000',
+  '00000PPPPPP000000000',
+  '00000PPPPPPPP0000000',
+  '000PPPPPPPPPPPPP0000',
+  '00011100000011110000',
+  '00011100000111110000',
+  '00011100000011100000',
+  '00011100000000000000',
+  '00011100000000000000',
+  '00000111100000000000',
+];
+const PSL_RUN8 = [
   '00000000000111111000',
   '00000000000111000000',
   '000000011111111HH000',
@@ -441,6 +532,7 @@ function doKickOff(kickingTeam) {
   ball.y = PITCH.h / 2;
   ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
   ball.owner = null;
+  ball.shotInFlight = 0;
   passGrace = 0;
   passTargetPlayer = null;
   lastPasserPlayer = null;
@@ -1032,25 +1124,25 @@ function scorePass(player, teammates, opponents, attackDir) {
 
   // Penalty for same-role short passes (e.g. ST→ST, CM→CM) — must exceed pressure bonus.
   const passDist = Math.hypot(target.x - player.x, target.y - player.y);
-  if (target.role === player.role && passDist < 20) s -= 0.55;
+  if (target.role === player.role && passDist < 20) s -= 0.65;
 
   // Penalty for backward passes when in the attacking half — all outfield roles
   // should look to progress the ball, not recycle behind the ball.
   const progressX = (target.x - player.x) * (attackDir === 1 ? 1 : -1);
   const inAttackingHalf = (attackDir === 1 ? player.x > PITCH.w * 0.45 : player.x < PITCH.w * 0.55);
-  if (!player.isKeeper && inAttackingHalf && progressX < -10) s -= 0.40;
-  else if (['AM', 'LW', 'RW', 'ST'].includes(player.role) && progressX < -8) s -= 0.35;
+  if (!player.isKeeper && inAttackingHalf && progressX < -10) s -= 0.50;
+  else if (['AM', 'LW', 'RW', 'ST'].includes(player.role) && progressX < -8) s -= 0.45;
 
   // Hold time bonus — increasingly want to pass the longer we hold
   const holdSec = (player.holdTime || 0) * 0.01667;
-  s += clamp(holdSec / 3, 0, 0.1); // reduced cap (was 0.2)
+  s += clamp(holdSec / 4, 0, 0.07); // smaller cap
 
   // Midfield boost — passing is the primary midfield action
-  if (distToGoal > 35) s += 0.05; // reduced from 0.15
+  if (distToGoal > 35) s += 0.08;
 
   // Strong penalty for being in shooting range: shoot instead
-  if (distToGoal < 25) s -= 0.25;
-  if (distToGoal < 15) s -= 0.20; // stacks: -0.45 total inside 15m
+  if (distToGoal < 28) s -= 0.32;
+  if (distToGoal < 18) s -= 0.25; // stacks: -0.57 total inside 18m
 
   return { score: clamp(s, 0, 1), target };
 }
@@ -1061,36 +1153,40 @@ function scoreShoot(player, opponents, attackDir) {
   const angleToGoal = Math.abs(player.y - PITCH.h / 2);
 
   if (player.shotCooldown > 0) return 0;
-  if (angleToGoal > 25) return 0;
+  if (angleToGoal > 30) return 0; // allow wider angles
   if (!canShoot(player, opponents, attackDir)) return 0;
 
-  // Per-role shooting range: beyond this distance the score is 0.
-  // Calibrated so shots happen primarily inside the penalty area (~16m).
-  // ST range 28m: at 16m score=0.43*0.90=0.39 beats penalised pass; at 22m score=0.21 loses to pass.
+  // Shooting range. Tightened outer range: MLS shots from >25m are rare.
   const shootRange = {
-    GK: 0,  CB: 12, LB: 12, RB: 12,
-    DM: 18, CM: 22, LM: 20, RM: 20,
-    AM: 26, LW: 20, RW: 20, ST: 28,
+    GK: 0,  CB: 16, LB: 16, RB: 16,
+    DM: 24, CM: 26, LM: 24, RM: 24,
+    AM: 28, LW: 26, RW: 26, ST: 30,
   };
-  const maxDist = shootRange[player.role] ?? 20;
+  const maxDist = shootRange[player.role] ?? 24;
   if (distToGoal > maxDist) return 0;
 
   // Linear: 1.0 at the goal line, 0.0 at maxDist.
-  // At 18m for ST (maxDist=30): s = 0.40 → *1.20 = 0.48 – beats penalised pass near goal.
-  // At 25m for ST:             s = 0.167 → *1.20 = 0.20 – pass (0.32) wins.
   let s = 1 - distToGoal / maxDist;
 
-  // Non-forward roles: pull back / square rather than shoot from distance
-  if (['CM','LM','RM','DM'].includes(player.role)) s *= 0.65;
-  if (['CB','LB','RB'].includes(player.role)) s *= 0.50;
+  // Non-forward roles: modest penalty for shooting
+  if (["CM","LM","RM","DM"].includes(player.role)) s *= 0.85;
+  if (["CB","LB","RB"].includes(player.role)) s *= 0.65;
 
-  // Angle penalty: rewards central positions
-  s -= clamp(angleToGoal / 20, 0, 0.25);
+  // Angle penalty: less severe
+  s -= clamp(angleToGoal / 28, 0, 0.15);
+
+  // Final-third positional bonus: close shots strongly preferred,
+  // long shots only modestly rewarded.
+  if (distToGoal < 18) s += 0.28;
+  else if (distToGoal < 24) s += 0.10;
 
   // Hold-time override: force a shot if stuck in a dangerous area too long
   const holdSec = (player.holdTime || 0) / 180;
-  if (distToGoal < 15 && holdSec > 1.0) s += 0.30;
-  if (distToGoal < 22 && holdSec > 2.0) s += 0.20;
+  if (distToGoal < 18 && holdSec > 0.4) s += 0.35;
+  if (distToGoal < 26 && holdSec > 1.2) s += 0.20;
+
+  // Slight random boost
+  s += Math.random() * 0.06;
 
   return clamp(s, 0, 1);
 }
@@ -1103,8 +1199,10 @@ function scoreDribble(player, opponents, attackDir) {
   const space = getSpaceAhead(player, opponents, attackDir);
   let s = clamp(space / 15, 0, 1) * 0.5;
 
-  // Forward progress potential
-  if (distToGoal > 20) s += 0.2;
+  // Forward progress potential — only outside the final third.
+  // Trimmed from +0.2 → +0.08: pre-MLS-calibration, +0.2 caused long midfield carries
+  // (30+ sec between passes) and dragged total passes down to ~180/match vs target 860.
+  if (distToGoal > 35) s += 0.08;
 
   // Penalty when pressed — dribbling into defenders is bad
   let closestOppDist = Infinity;
@@ -1112,12 +1210,14 @@ function scoreDribble(player, opponents, attackDir) {
   if (closestOppDist < 3) s -= 0.3;
   if (closestOppDist < 5) s -= 0.1;
 
-  // Dead zone: very close to goal, dribbling is useless
+  // Tiered zone penalty: inside 30m shoot/pass beats dribble
   if (distToGoal < 7) s -= 0.4;
+  else if (distToGoal < 20) s -= 0.30; // inside the box
+  else if (distToGoal < 30) s -= 0.15; // approaching the box
 
-  // Early hold bonus — just received, settle the ball
+  // Early hold bonus — just received, settle the ball (only outside final third)
   const holdSec = (player.holdTime || 0) * 0.01667;
-  if (holdSec < 0.5) s += 0.3;
+  if (holdSec < 0.5 && distToGoal > 30) s += 0.3;
 
   // Penalty for holding too long — need to do something
   if (holdSec > 2) s -= 0.2;
@@ -1129,21 +1229,36 @@ function scoreClear(player, opponents) {
   const ownGoalX = player.side === 1 ? 0 : PITCH.w;
   const distToOwnGoal = Math.abs(player.x - ownGoalX);
 
+  // Count nearby pressers — multiple opponents closing in raises urgency sharply.
   let closestOppDist = Infinity;
-  for (const opp of opponents) { const d = dist(player, opp); if (d < closestOppDist) closestOppDist = d; }
+  let pressCount = 0;
+  for (const opp of opponents) {
+    if (opp.isKeeper) continue;
+    const d = dist(player, opp);
+    if (d < closestOppDist) closestOppDist = d;
+    if (d < 6) pressCount++;
+  }
 
-  // Only relevant in own half under pressure
-  if (distToOwnGoal > 35) return 0;
+  // Only relevant in own half — beyond midfield there's always a pass/dribble option.
+  if (distToOwnGoal > 40) return 0;
 
   let s = 0;
-  // Danger zone: own third + pressure.
-  // Reduced from (0.6/0.85) so pass (0.55-0.65) wins when a decent option exists.
-  // Clear still wins in extreme danger (opp at 2m, very deep).
-  if (distToOwnGoal < 20 && closestOppDist < 5) s = 0.44;
-  if (distToOwnGoal < 12 && closestOppDist < 3) s = 0.65;
+  // Danger tiers. Tightened: prior 30m/6m first tier fired across most of the
+  // defensive third (CMs clearing GK throws). Real clears are last-resort,
+  // inside ~18m with 1-2 defenders closing in tight.
+  if (distToOwnGoal < 22 && closestOppDist < 4)  s = 0.50;
+  if (distToOwnGoal < 16 && closestOppDist < 3.5) s = 0.72;
+  if (distToOwnGoal < 10 && closestOppDist < 2.5) s = 0.90;
 
-  // Tiny CB bonus — last resort only
-  if (player.role === 'CB' || player.role === 'LB' || player.role === 'RB') s += 0.04;
+  // Multi-presser urgency: swarm inside own box → get rid of it.
+  if (pressCount >= 2 && distToOwnGoal < 18) s += 0.10;
+
+  // Role bias: back line / DM clear; midfielders should build out;
+  // forwards almost never should clear.
+  if (['CB', 'LB', 'RB'].includes(player.role)) s += 0.10;
+  else if (player.role === 'DM') s += 0.05;
+  else if (['CM', 'LM', 'RM'].includes(player.role)) s -= 0.10;
+  else if (['ST', 'LW', 'RW', 'AM'].includes(player.role)) s -= 0.25;
 
   return clamp(s, 0, 1);
 }
@@ -1366,8 +1481,12 @@ function doShoot(player, goalX) {
   lastPasserPlayer = player;
   passTargetPlayer = null; // no pass target for shots
   player.justPassed = 90;
-  // Prevent ALL players from intercepting during shot flight
-  ball.shotInFlight = 26;
+  // Prevent ALL players from intercepting during shot flight.
+  // Treated as a boolean flag — cleared when the ball crosses a goal line, is saved,
+  // slows to a loose-ball speed, or goes out of play. Previous 26-tick countdown only
+  // covered the first 0.14s of a ~1s flight, so defenders in the box "saved" shots
+  // silently by pickup before checkGoal ever ran.
+  ball.shotInFlight = 1;
   // Brief reaction delay for defending keeper (do NOT use keeperNoPickUp — keeper must be
   // able to physically save the shot; see updateKeeper)
   passTrail = {
@@ -1461,13 +1580,42 @@ function clearBall(player, forced = false) {
 // Role-based top speed (m/s). Reflects real-world differences:
 // wingers and strikers are fastest; CBs and GKs are slowest.
 function getRoleSpeed(role) {
+  // Divided by BASE_TICKS (3): sim runs 3 ticks/real-frame, so raw m/s must be ÷3
+  // to match real-world sprint speeds (~9 m/s elite = 3.0 here).
   const map = {
-    GK: 6.0,
-    CB: 7.5, LB: 8.5, RB: 8.5,
-    DM: 8.0, CM: 8.5, LM: 9.0, RM: 9.0,
-    AM: 8.5, LW: 9.5, RW: 9.5, ST: 9.0,
+    GK: 2.0,
+    CB: 2.5, LB: 2.8, RB: 2.8,
+    DM: 2.7, CM: 2.8, LM: 3.0, RM: 3.0,
+    AM: 2.8, LW: 3.2, RW: 3.2, ST: 3.0,
   };
-  return map[role] ?? 8.5;
+  return map[role] ?? 2.8;
+}
+
+// Pressing state: derive how aggressively the defending team closes down
+// based on where the ball is, from that team's perspective.
+//   3 = HIGH PRESS  — ball is in opponent's defensive third → 3 chasers, attackers allowed forward
+//   2 = MID-BLOCK   — ball in midfield → 2 chasers, shape compact
+//   1 = LOW BLOCK   — ball is in own defensive third → 1 chaser, others drop into formation
+function getPressLevel(team) {
+  const side = team[0] ? team[0].side : 1;
+  const oppThirdStart = side === 1 ? PITCH.w * 2 / 3 : PITCH.w / 3;
+  const ownThirdEnd   = side === 1 ? PITCH.w / 3     : PITCH.w * 2 / 3;
+  const ballInOppThird = side === 1 ? ball.x > oppThirdStart : ball.x < oppThirdStart;
+  const ballInOwnThird = side === 1 ? ball.x < ownThirdEnd   : ball.x > ownThirdEnd;
+  if (ballInOppThird) return 3;
+  if (ballInOwnThird) return 1;
+  return 2;
+}
+
+// Return the N outfielders closest to the ball, ranked nearest-first.
+function getNClosestToBall(team, n) {
+  const ranked = [];
+  for (const p of team) {
+    if (p.isKeeper) continue;
+    ranked.push({ p, d: dist(p, ball) });
+  }
+  ranked.sort((a, b) => a.d - b.d);
+  return ranked.slice(0, n).map(r => r.p);
 }
 
 function smoothVelocity(player, desiredVx, desiredVy, blendRate) {
@@ -1517,20 +1665,29 @@ function updatePlayerAI(player, teammates, opponents, dt) {
       }
     }
 
-    const closest = getClosestToBall(myTeam);
-    const second = getSecondClosestToBall(myTeam);
-    // Attackers (high mindset) press only up to 65% of the pitch — don't chase
-    // all the way into the opponent's defensive third.
+    // Press level scales the number of chasers and whether attackers may push
+    // into the opponent's defensive third. See getPressLevel().
+    const pressLevel = getPressLevel(myTeam);
+    const chasers = getNClosestToBall(myTeam, pressLevel);
+    const chaserIdx = chasers.indexOf(player);
     const playerMindset = getMindset(player.role);
+    // In a mid-block (level 2), high-mindset attackers don't chase past 65% of
+    // the pitch — keep a compact shape. On a high press (level 3) they DO push
+    // forward. On a low block (level 1) only the single closest player engages.
     const pressLineX = player.side === 1 ? PITCH.w * 0.65 : PITCH.w * 0.35;
     const ballBeyondPressLine = player.side === 1 ? ball.x > pressLineX : ball.x < pressLineX;
-    const allowChase = !(playerMindset > 0.65 && ballBeyondPressLine);
-    if ((player === closest || (player === second && dist(player, ball) < 18)) && !player.justPassed && allowChase) {
+    const allowChase = pressLevel >= 3 || !(playerMindset > 0.65 && ballBeyondPressLine);
+    // Second+ chasers only engage if they're within range — avoids CBs abandoning
+    // the back line to sprint 30m toward a ball an attacker is already chasing.
+    const rangeCap = chaserIdx === 0 ? Infinity : (chaserIdx === 1 ? 20 : 12);
+    if (chaserIdx >= 0 && dist(player, ball) < rangeCap && !player.justPassed && allowChase) {
       player.aiState = 'chase';
       const dx = ball.x - player.x;
       const dy = ball.y - player.y;
       const d = Math.hypot(dx, dy);
-      const speed = player === closest ? 8.5 : 7;
+      // Same ÷3 scaling as getRoleSpeed. First chaser sprints, supporters close at
+      // reduced pace so they arrive as a second wave (not a stampede).
+      const speed = [2.8, 2.5, 2.3][chaserIdx] ?? 2.3;
       if (d > 0.5) {
         smoothVelocity(player, (dx / d) * speed, (dy / d) * speed, 0.25);
       }
@@ -1562,7 +1719,8 @@ function updatePlayerAI(player, teammates, opponents, dt) {
     const bdy = ball.y - player.y;
     const bd = Math.hypot(bdx, bdy);
     if (bd > 0.3) {
-      smoothVelocity(player, (bdx / bd) * 10, (bdy / bd) * 10, 0.35);
+      // ÷3 scaling: receivers sprint slightly faster than chasers (3.3 m/s raw).
+      smoothVelocity(player, (bdx / bd) * 3.3, (bdy / bd) * 3.3, 0.35);
     }
     player.aiState = 'receive';
     return;
@@ -1613,20 +1771,23 @@ function checkTackles() {
   if (tackleCooldown > 0) return;
   const owner = ball.owner;
   if (owner.isKeeper && owner.keeperHandled) return;
+  if (owner.tackledImmunity > 0) return; // recently dispossessed — can't be re-tackled yet
 
   const oppTeam = owner.side === 1 ? teamB : teamA;
   for (const opp of oppTeam) {
     if (opp.tackledImmunity > 0) continue;
     const d = dist(opp, ball);
-    if (d < 4.0) {
-      // Calibrated for 180 ticks/sec (3 ticks/frame @ 60fps).
-      // ~1.5s expected hold at d=1m, ~2.8s at d=4m with one opponent.
-      const chance = 0.003 + (4.0 - d) * 0.001;
+    if (d < 2.5) {
+      if (opp.tackleCooldown > 0) continue; // per-player cooldown: same player can't tackle repeatedly
+      // Calibrated for 180 ticks/sec targeting ~18 tackles/team/90min (MLS avg).
+      // Previous (d<2, 0.001 base) produced ~2 tackles/90 — raised to meet MLS rate.
+      const chance = 0.002 + (2.5 - d) * 0.001;
       if (Math.random() < chance) {
         owner.hasBall = false;
         owner.holdTime = 0;
         owner.intention = null;
-        owner.tackledImmunity = 170;
+        owner.tackledImmunity = 120;
+        opp.tackleCooldown = 400; // shorter cooldown
         const oppTelem = opp.side === 1 ? telem.red : telem.blue;
         oppTelem.tacklesWon++;
         telemEvent(opp.side === 1 ? 'RED' : 'BLUE', 'TACKLE', `${opp.role} dispossesses ${owner.role}`);
@@ -1635,7 +1796,7 @@ function checkTackles() {
         ball.vy = Math.sin(awayAngle) * 12;
         ball.vz = 0.5;
         ball.owner = null;
-        tackleCooldown = 10; // minimal global lockout — per-player tackledImmunity handles re-tackle protection
+        tackleCooldown = 7;
         passTargetPlayer = null;
         return;
       }
@@ -1646,7 +1807,7 @@ function checkTackles() {
 function checkIntercepts() {
   if (ball.owner) return;
   // During shot flight, nobody can intercept — let the ball fly
-  if (ball.shotInFlight > 0) { ball.shotInFlight--; return; }
+  if (ball.shotInFlight > 0) return;
   // Priority: intended pass target gets larger pickup radius
   if (passTargetPlayer && !passTargetPlayer.hasBall && passTargetPlayer.tackledImmunity <= 0) {
     const td = dist(passTargetPlayer, ball);
@@ -1655,6 +1816,7 @@ function checkIntercepts() {
       passTargetPlayer.hasBall = true;
       passTargetPlayer.holdTime = 0;
       passTargetPlayer.intention = null;
+      passTargetPlayer.tackledImmunity = 90; // ~0.5 real-sec settling window before opponent can tackle
       passTargetPlayer.nextDecisionTime = 0;
       passTargetPlayer.utilAction = null;
       ball.vx = 0; ball.vy = 0;
@@ -1729,7 +1891,7 @@ function checkGoal() {
   const goalYMin = PITCH.h / 2 - goalHalfW;
   const goalYMax = PITCH.h / 2 + goalHalfW;
 
-  if (ball.x <= 0.5 && ball.y > goalYMin && ball.y < goalYMax) {
+  if (ball.x <= 0 && ball.y > goalYMin && ball.y < goalYMax) {
     // Save chance is position-based: how close is the keeper to the ball's crossing point?
     const keeper = teamA.find(p => p.isKeeper);
     const keeperDist = keeper ? Math.abs(keeper.y - ball.y) : 99;
@@ -1756,7 +1918,7 @@ function checkGoal() {
     telemEvent('BLUE', 'GOAL', `Score! ${score[0]}-${score[1]}`);
     updateScoreboard();
     doKickOff(teamA);
-  } else if (ball.x >= PITCH.w - 0.5 && ball.y > goalYMin && ball.y < goalYMax) {
+  } else if (ball.x >= PITCH.w && ball.y > goalYMin && ball.y < goalYMax) {
     const keeper = teamB.find(p => p.isKeeper);
     const keeperDist = keeper ? Math.abs(keeper.y - ball.y) : 99;
     const saveChance = keeperDist < 1.0 ? 0.95
@@ -1791,6 +1953,7 @@ function resetBallInBounds() {
   const outBottom = ball.y > PITCH.h + 1;
 
   ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
+  ball.shotInFlight = 0;
 
   if (outLeft || outRight) {
     // Ball crossed a goal line (but didn't score) → goal kick for the defending team
@@ -1870,6 +2033,7 @@ function tick(dt) {
   for (const p of allPlayers) {
     if (p.justPassed > 0) p.justPassed--;
     if (p.tackledImmunity > 0) p.tackledImmunity--;
+    if (p.tackleCooldown > 0) p.tackleCooldown--;
     if (p.shotCooldown > 0) p.shotCooldown--;
     if (p.keeperNoPickUp > 0) p.keeperNoPickUp--;
   }
@@ -1906,6 +2070,11 @@ function tick(dt) {
     // PSL: linear drag 0.58 on 65.6u field. Scaled to 105m: ~0.7
     ball.vx *= (1 - 0.7 * dt);
     ball.vy *= (1 - 0.7 * dt);
+    // End of shot flight: once the ball slows to a loose-ball speed, opponents
+    // can pick it up again. 4 m/s is below a rebound/deflection speed.
+    if (ball.shotInFlight > 0 && Math.hypot(ball.vx, ball.vy) < 4) {
+      ball.shotInFlight = 0;
+    }
   }
 
   checkTackles();
@@ -1977,13 +2146,13 @@ function drawPlayer(p) {
 
   // Determine sprite & animation frame
   const moving = Math.hypot(p.vx, p.vy) > 1;
-  const frame = Math.floor(matchTime * 8 / 3) % 4; // ÷3 compensates for 3 ticks/frame so legs animate at natural rate
+  // 8-frame gait cycle from player_running_frames.json.
+  const runFrames = [PSL_RUN1, PSL_RUN2, PSL_RUN3, PSL_RUN4, PSL_RUN5, PSL_RUN6, PSL_RUN7, PSL_RUN8];
   let pattern;
   if (p.isKeeper) {
     pattern = moving ? PSL_KEEPER_RUN : PSL_KEEPER_IDLE;
   } else if (moving) {
-    const runFrames = [PSL_RUN1, PSL_RUN2, PSL_RUN3, PSL_RUN2];
-    pattern = runFrames[frame];
+    pattern = runFrames[Math.floor(matchTime * 8 / 3) % 8];
   } else {
     pattern = PSL_IDLE;
   }
@@ -2180,15 +2349,22 @@ function render() {
 // GAME LOOP
 // ============================================================
 
-// Fractional step accumulator.
-// BASE_TICKS = 3 fires 3 sim ticks per RAF frame at 1×, giving players ~3 px/frame
-// movement which looks natural. Clock divisor 12 = 1 match-minute per 4 real-seconds
-// → a full 90-minute match takes ~6 real-minutes at 1×.
+// Fractional step accumulator — frame-rate independent.
+// Target: 180 sim ticks per real-second (BASE_TICKS × 60 fps). On 120/144 Hz
+// monitors requestAnimationFrame fires more often, so we use actual elapsed time
+// to keep the simulation speed consistent across all refresh rates.
+// Clock divisor 12 = 1 match-minute per 4 real-seconds → 90-minute match in ~6 real-minutes at 1×.
 const BASE_TICKS = 3;
 let stepAccum = 0;
-function gameLoop() {
+let lastFrameTime = null;
+function gameLoop(timestamp) {
+  if (lastFrameTime === null) lastFrameTime = timestamp;
+  const elapsed = Math.min(timestamp - lastFrameTime, 50); // cap at 50 ms to avoid spiral on tab focus
+  lastFrameTime = timestamp;
+
   if (!paused) {
-    stepAccum += speedMult * BASE_TICKS;
+    // Convert elapsed ms to the equivalent number of 60-fps frames, then scale by speed
+    stepAccum += (elapsed / 16.6667) * speedMult * BASE_TICKS;
     const steps = Math.floor(stepAccum);
     stepAccum -= steps;
     for (let i = 0; i < steps; i++) { if (paused) break; tick(DT * GAME_SPEED_SCALE); }
@@ -2269,7 +2445,7 @@ document.addEventListener('keydown', e => {
 
 // Boot
 resetMatch();
-gameLoop();
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
