@@ -18,13 +18,13 @@ extern unsigned long time_ms;
 const float idleVelocity = 0.0f;
 const float dribbleVelocity = 3.5f;
 const float walkVelocity = 5.0f;
-const float sprintVelocity = 8.0f;
+const float sprintVelocity = 9.5f;
 
-const float animSprintVelocity = 7.0f;
+const float animSprintVelocity = 9.5f;
 
 const float idleDribbleSwitch = 1.8f;
 const float dribbleWalkSwitch = 4.2f;
-const float walkSprintSwitch = 6.0f;
+const float walkSprintSwitch = 6.5f;
 // PES6 digital control mode, quantizes some input to x degree angles
 const bool quantizeDirection = true;
 
@@ -51,7 +51,7 @@ const float _default_HighPass_AutoDirection = 0.2f;
 const float _default_HighPass_AutoPower = 0.5f;
 const float _default_Shot_AutoDirection = 0.2f;
 
-const float distanceToVelocityMultiplier = 2.6f; // for example: when we need to travel 4 meters, we need to go at velo 4 * distanceToVelocityMultiplier
+const float distanceToVelocityMultiplier = 1.8f; // for example: when we need to travel 4 meters, we need to go at velo 4 * distanceToVelocityMultiplier
 
 const unsigned int ballPredictionSize_ms = 3000;
 const unsigned int ballHistorySize_ms = 4000;

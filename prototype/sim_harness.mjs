@@ -493,99 +493,85 @@ function updateOnBall(player, teammates, opponents, dt) {
   // Philosophy: dribble forward by default, shoot when close, pass to better-positioned mates
   // Shooting is NOT the first priority — penetration is.
 
-  // 1. POINT-BLANK SHOT: close to goal (very rare)
-  if (distToGoal < 7 && player.shotCooldown <= 0 && Math.abs(player.y - PITCH.h / 2) < 7 && Math.random() < 0.00002) {
+  // 1. POINT-BLANK: inside 12m — always shoot (only keeper stands in the way)
+  if (distToGoal < 12 && player.shotCooldown <= 0 && Math.abs(player.y - PITCH.h / 2) < 14) {
     doShoot(player, oppGoalX);
     return;
   }
-  // 2. DANGER ZONE: under pressure in own half — defenders clear under real pressure
-  if ((distToOwnGoal < 20 && closestOppDist < 3 && Math.random() < 0.0004) || (player.role === 'CB' && distToOwnGoal < 30 && closestOppDist < 6 && Math.random() < 0.0002)) {
+  // 2. DANGER ZONE: under pressure in own half — defenders clear
+  if ((distToOwnGoal < 20 && closestOppDist < 3 && Math.random() < 0.04) || (player.role === 'CB' && distToOwnGoal < 30 && closestOppDist < 6 && Math.random() < 0.02)) {
     clearBall(player, true);
     return;
   }
-  // 3. FIRST TOUCH: forced dribble for 15 frames
-  if (player.holdTime < 15) {
+  // 3. FIRST TOUCH: dribble to settle (8 frames), but skip if already in box
+  if (player.holdTime < 8 && distToGoal > 18) {
     doDribble(player, opponents, attackDir);
     return;
   }
-  // 3b. UNDER PRESSURE: pass if opponent is very close (but only sometimes — mostly just dribble away)
-  if (closestOppDist < 1.0 && player.holdTime > 30 && Math.random() < 0.0006) {
+  // 3b. UNDER PRESSURE: pass if opponent is close
+  if (closestOppDist < 2.5 && player.holdTime > 15 && Math.random() < 0.06) {
     const { target } = findBestPass(player, teammates, opponents, attackDir);
     if (target) { doPass(player, target); return; }
   }
-  // 4. CLOSE-RANGE SHOT: 18-25m with clear line (very rare)
-  if (distToGoal < 18 && canShoot(player, opponents, attackDir) && Math.random() < 0.000015) {
+  // 4. CLOSE-RANGE SHOT: inside 18m — shoot with ~3% per tick (fires in ~33 frames on avg)
+  if (distToGoal < 18 && canShoot(player, opponents, attackDir) && Math.random() < 0.03) {
     doShoot(player, oppGoalX);
     return;
   }
-  // 5. FINAL THIRD: almost never pass, rare shot, mostly dribble/hold
+  // 5. FINAL THIRD: pass to better-positioned mate or shoot
   if (distToGoal < 35) {
-    // Almost never pass
     const { target: passTarget, score: passScore } = findBestPass(player, teammates, opponents, attackDir);
-    if (passTarget && passScore > 0.99 && Math.random() < 0.00003) {
+    // Pass if teammate is meaningfully closer to goal
+    if (passTarget && passScore > 0.50 && Math.random() < 0.07) {
       const mateDistToGoal = Math.abs(passTarget.x - oppGoalX);
-      if (mateDistToGoal < 30 && mateDistToGoal < distToGoal - 20) {
+      if (mateDistToGoal < distToGoal - 6) {
         doPass(player, passTarget);
         return;
       }
     }
-    // Rare shot from final third
-    if (distToGoal < 25 && canShoot(player, opponents, attackDir) && Math.random() < 0.000005) {
+    // Shot from 18–25m: ~1.5% per tick
+    if (distToGoal < 25 && canShoot(player, opponents, attackDir) && Math.random() < 0.015) {
       doShoot(player, oppGoalX);
       return;
     }
-    // Mostly dribble/hold
-    if (player.holdTime < 800) {
-      if (Math.random() < 0.9995) {
-        doDribble(player, opponents, attackDir);
-        return;
-      } else {
-        return; // hold
-      }
-    }
-  }
-  // 6. MIDFIELD: almost never pass, always dribble/hold
-  if (distToGoal >= 35 && player.holdTime > 1600) {
-    const { target: passTarget, score: passScore } = findBestPass(player, teammates, opponents, attackDir);
-    if (passTarget && passScore > 0.999 && Math.random() < 0.000002) {
-      const mateDistToGoal = Math.abs(passTarget.x - oppGoalX);
-      if (mateDistToGoal < distToGoal - 40) {
-        doPass(player, passTarget);
-        return;
-      }
-    }
-    // Overwhelmingly dribble/hold
-    if (Math.random() < 0.999999) {
+    // Dribble toward goal for up to 60 frames
+    if (player.holdTime < 60) {
       doDribble(player, opponents, attackDir);
       return;
-    } else {
-      return; // hold
     }
-  }
-  // 7. LONG-RANGE SHOT: very rare even after long hold
-  if (distToGoal < 32 && player.holdTime > 200 && canShoot(player, opponents, attackDir) && Math.random() < 0.00002) {
-    doShoot(player, oppGoalX);
-    return;
-  }
-  // 8. HELD TOO LONG: force clear if in danger, else very rare pass/hold
-  if (player.holdTime > 600) {
-    if (distToOwnGoal < 20 && closestOppDist < 5 && Math.random() < 0.0002) {
-      clearBall(player, true);
-      return;
-    }
-    if (distToGoal < 25 && canShoot(player, opponents, attackDir) && Math.random() < 0.000008) {
+    // After 60 frames: shoot or pass — don't hold forever
+    if (canShoot(player, opponents, attackDir) && Math.random() < 0.08) {
       doShoot(player, oppGoalX);
       return;
     }
-    const { target } = findBestPass(player, teammates, opponents, attackDir);
-    if (target && Math.random() < 0.0002) {
-      doPass(player, target);
+    if (passTarget) { doPass(player, passTarget); return; }
+    doDribble(player, opponents, attackDir);
+    return;
+  }
+  // 6. MIDFIELD: pass regularly, occasional long-range shot
+  if (distToGoal >= 35) {
+    if (player.holdTime > 35) {
+      const { target: passTarget, score: passScore } = findBestPass(player, teammates, opponents, attackDir);
+      if (passTarget && passScore > 0.38 && Math.random() < 0.14) {
+        doPass(player, passTarget);
+        return;
+      }
+    }
+    if (distToGoal < 32 && player.holdTime > 60 && canShoot(player, opponents, attackDir) && Math.random() < 0.008) {
+      doShoot(player, oppGoalX);
       return;
     }
     doDribble(player, opponents, attackDir);
     return;
   }
-  // 9. DEFAULT: dribble
+  // 7. HELD TOO LONG anywhere: force action
+  if (player.holdTime > 150) {
+    if (distToOwnGoal < 20 && closestOppDist < 5) { clearBall(player, true); return; }
+    if (canShoot(player, opponents, attackDir)) { doShoot(player, oppGoalX); return; }
+    const { target } = findBestPass(player, teammates, opponents, attackDir);
+    if (target) { doPass(player, target); return; }
+  }
+  // 8. DEFAULT: dribble
   doDribble(player, opponents, attackDir);
 }
 
@@ -611,11 +597,13 @@ function doPass(from, to) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const d = Math.hypot(dx, dy);
-  const power = clamp((6 + d * 0.18) * 0.5, 3, 7.5);
+  // Power calibrated to harness drag: terminal_dist = power * dt / drag_rate = power * 0.02/0.014
+  // → power = d * 0.7 so ball decelerates to exactly the target distance
+  const power = clamp(d * 0.7, 3, 28);
   ball.vx = (dx / d) * power;
   ball.vy = (dy / d) * power;
-  const naiveFrames = d / power * 60 * 0.7;
-  passGrace = Math.max(20, Math.ceil(naiveFrames * 2.5));
+  // Grace: estimate flight frames = d / (power * dt) * ln(power/(power-d*drag))... approx:
+  passGrace = Math.max(20, Math.ceil(d / (power * 0.02) * 1.8));
   passTrail = { x1: from.x, y1: from.y, x2: to.x, y2: to.y, life: 45 };
 }
 
@@ -809,12 +797,15 @@ function checkTackles() {
   if (tackleCooldown > 0) return;
   const owner = ball.owner;
   if (owner.isKeeper && owner.keeperHandled) return;
+  if (owner.tackledImmunity > 0) return; // recently dispossessed — can't be tackled yet
   const oppTeam = owner.side === 1 ? teamB : teamA;
   for (const opp of oppTeam) {
     if (opp.tackledImmunity > 0) continue;
     const d = dist(opp, ball);
-    if (d < 1.2) {
-      const chance = 0.00001 + (1.2 - d) * 0.00001;
+    if (d < 2.0) {
+      if (opp.tackleCooldown > 0) continue; // per-player cooldown: same player can't tackle repeatedly
+      // Calibrated for ~18 tackles/team/90min (MLS avg). Per-player tackledImmunity handles re-tackle.
+      const chance = 0.0008 + (2.0 - d) * 0.0006;
       if (Math.random() < chance) {
         owner.hasBall = false; owner.holdTime = 0; owner.intention = null;
         owner.tackledImmunity = 100;
@@ -826,7 +817,7 @@ function checkTackles() {
         ball.vy = Math.sin(awayAngle) * 12;
         ball.vz = 0.5;
         ball.owner = null;
-        tackleCooldown = 600;
+        tackleCooldown = 10;
         passTargetPlayer = null;
         return;
       }
@@ -845,6 +836,7 @@ function checkIntercepts() {
       passTargetPlayer.hasBall = true;
       passTargetPlayer.holdTime = 0;
       passTargetPlayer.intention = null;
+      passTargetPlayer.tackledImmunity = 25; // settling window: ~1 game-sec before opponent can tackle
       ball.vx = 0; ball.vy = 0;
       passGrace = 0;
       passTargetPlayer = null;
@@ -863,6 +855,7 @@ function checkIntercepts() {
         if (p === lastPasserPlayer) continue;
       }
       ball.owner = p; p.hasBall = true; p.holdTime = 0; p.intention = null;
+      p.tackledImmunity = 15; // loose ball pickup: brief window before opponent can tackle
       ball.vx = 0; ball.vy = 0; passGrace = 0; passTargetPlayer = null;
       return;
     }

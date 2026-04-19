@@ -1019,7 +1019,7 @@ function findBestPass(player, teammates, opponents, attackDir) {
     // Positional value (closer to opponent goal)
     const posValue = 1 - Math.abs(mate.x - oppGoalX) / PITCH.w;
 
-    const score = openness * 0.35 + forward * 0.35 + posValue * 0.2 + (1 - d / 55) * 0.1;
+    const score = openness * 0.35 + forward * 0.40 + posValue * 0.15 + (1 - d / 55) * 0.1;
 
     // Defensive/holding players should recycle short — not launch lofts over midfield.
     // CB/LB/RB/DM: strong penalty beyond 22m. CM: softer beyond 28m.
@@ -1028,10 +1028,14 @@ function findBestPass(player, teammates, opponents, attackDir) {
     let distPenalty = 0;
     if (player.isKeeper && d > 20) {
       distPenalty = ((d - 20) / 25) * 0.80;
-    } else if (['CB', 'LB', 'RB', 'DM'].includes(player.role) && d > 15) {
-      // Steep ramp starting at 15m: CB/DM should play through DM/LB not launch 25m lofts.
+    } else if (['CB', 'LB', 'RB'].includes(player.role) && d > 15) {
+      // Steep ramp starting at 15m: CB should play through DM/LB not launch 25m lofts.
       // At 25m penalty = 0.47 — strong enough to override a well-placed AM target.
       distPenalty = Math.min(((d - 15) / 15) * 0.70, 0.70);
+    } else if (player.role === 'DM' && d > 20) {
+      // Softer penalty for DM: allows CM/AM/wing progressions, reduces DM→AM loop
+      // DM can play through to more advanced midfielders without heavy penalty
+      distPenalty = Math.min(((d - 20) / 20) * 0.45, 0.45);
     } else if (player.role === 'CM' && d > 28) {
       distPenalty = ((d - 28) / 27) * 0.40;
     } else if (player.role === 'AM' && d > 30) {
@@ -1090,9 +1094,9 @@ function getSpaceAhead(player, opponents, attackDir) {
 // Each action is scored 0–1, then the best is picked.
 
 const UTIL_WEIGHTS = {
-  pass:    0.80,
+  pass:    0.90,  // increased: prioritize quick passes over other actions
   shoot:   0.75,  // tuned: keep shots in penalty area only
-  dribble: 1.0,
+  dribble: 0.85,  // reduced: discourage holding/dribbling
   clear:   1.0,
 };
 
@@ -1102,9 +1106,9 @@ function getDecisionInterval(closestOppDist) {
   // matchTime advances 3 units/real-second (BASE_TICKS=3, DT=1/60, 60fps).
   // Clock divisor is 12, so targets in real-seconds × 3 × (4/3) = × 4.
   if (closestOppDist < 3)  return 0.6;   // ~0.15 real-sec under heavy pressure
-  if (closestOppDist < 6)  return 1.2;   // ~0.30 real-sec moderate pressure
-  if (closestOppDist < 10) return 2.0;   // ~0.50 real-sec light pressure
-  return 3.2;                             // ~0.80 real-sec lots of space
+  if (closestOppDist < 6)  return 1.0;   // ~0.25 real-sec moderate pressure (tightened)
+  if (closestOppDist < 10) return 1.6;   // ~0.40 real-sec light pressure (tightened)
+  return 2.2;                             // ~0.55 real-sec lots of space (tightened from 3.2)
 }
 
 function scorePass(player, teammates, opponents, attackDir) {
@@ -1135,14 +1139,14 @@ function scorePass(player, teammates, opponents, attackDir) {
 
   // Hold time bonus — increasingly want to pass the longer we hold
   const holdSec = (player.holdTime || 0) * 0.01667;
-  s += clamp(holdSec / 4, 0, 0.07); // smaller cap
+  s += clamp(holdSec / 1.5, 0, 0.15); // aggressive ramp: strong incentive to release ball quickly
 
   // Midfield boost — passing is the primary midfield action
   if (distToGoal > 35) s += 0.08;
 
-  // Strong penalty for being in shooting range: shoot instead
-  if (distToGoal < 28) s -= 0.32;
-  if (distToGoal < 18) s -= 0.25; // stacks: -0.57 total inside 18m
+  // Penalty for being in shooting range: shoot instead (but not aggressive)
+  if (distToGoal < 28) s -= 0.20;
+  if (distToGoal < 18) s -= 0.15; // softer stack to allow some pass options
 
   return { score: clamp(s, 0, 1), target };
 }
@@ -1177,8 +1181,8 @@ function scoreShoot(player, opponents, attackDir) {
 
   // Final-third positional bonus: close shots strongly preferred,
   // long shots only modestly rewarded.
-  if (distToGoal < 18) s += 0.28;
-  else if (distToGoal < 24) s += 0.10;
+  if (distToGoal < 18) s += 0.35;
+  else if (distToGoal < 24) s += 0.15;
 
   // Hold-time override: force a shot if stuck in a dangerous area too long
   const holdSec = (player.holdTime || 0) / 180;
@@ -1243,12 +1247,10 @@ function scoreClear(player, opponents) {
   if (distToOwnGoal > 40) return 0;
 
   let s = 0;
-  // Danger tiers. Tightened: prior 30m/6m first tier fired across most of the
-  // defensive third (CMs clearing GK throws). Real clears are last-resort,
-  // inside ~18m with 1-2 defenders closing in tight.
-  if (distToOwnGoal < 22 && closestOppDist < 4)  s = 0.50;
-  if (distToOwnGoal < 16 && closestOppDist < 3.5) s = 0.72;
-  if (distToOwnGoal < 10 && closestOppDist < 2.5) s = 0.90;
+  // Danger tiers. Further tightened: clears only as last resort.
+  // MLS teams build out from defense, not panic-clear.
+  if (distToOwnGoal < 16 && closestOppDist < 3.0)  s = 0.60;
+  if (distToOwnGoal < 10 && closestOppDist < 2.5) s = 0.85;
 
   // Multi-presser urgency: swarm inside own box → get rid of it.
   if (pressCount >= 2 && distToOwnGoal < 18) s += 0.10;
