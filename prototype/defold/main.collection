@@ -22,6 +22,11 @@
 --    - Id: player
 --    - Position: -100, 0, 0
 
+-- 4) spawner (Game Object)
+--    - Script: /scripts/spawner.script
+--    - Id: spawner
+--    - Position: 0, 0, 0
+
 -- Quick recreate steps (in Defold editor):
 -- 1. File -> New -> Collection -> name it `main.collection`.
 -- 2. Create `main.go` game object, add Script component `/scripts/main.script`, set Id `main`.
