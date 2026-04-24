@@ -49,3 +49,20 @@ embedded_components {
   }
 }
 
+embedded_components {
+  id: "script"
+  type: "script"
+  data: "script: \"/scripts/spawner.script\"\n"
+  position {
+    x: 0.0
+    y: 0.0
+    z: 0.0
+  }
+  rotation {
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+  }
+}
+
