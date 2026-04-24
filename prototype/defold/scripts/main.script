@@ -1,0 +1,16 @@
+-- main.script — minimal game manager
+
+local M = {}
+
+function init(self)
+  -- load constants if desired
+  -- local json = sys.load_resource("/data/game_constants.json")
+  -- self.constants = json.decode(json)
+  print("Defold starter: init")
+end
+
+function update(self, dt)
+  -- global tick, manage teams, AI updates, etc.
+end
+
+return M

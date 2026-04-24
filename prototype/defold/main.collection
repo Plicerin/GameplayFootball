@@ -1,0 +1,13 @@
+-- main.collection (stub)
+-- This is a placeholder describing the top-level collection structure
+-- Import into Defold and create an actual `.collection` via the editor.
+
+-- Collections:
+--  - /field.collection  (contains pitch, lines, goals)
+--  - /teams.collection  (contains two `team` collections)
+--  - /ui.collection     (HUD, scoreboard)
+
+-- Game objects:
+--  - main (script: main.script)
+--  - ball (script: ball.script)
+--  - player prefab (script: player.script)
