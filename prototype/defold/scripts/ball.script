@@ -1,24 +1,33 @@
--- ball.script — basic ball behaviour stub
+-- ball.script — basic ball behaviour with simple physics
 
 local M = {}
 
 function init(self)
   self.velocity = vmath.vector3(0,0,0)
-  self.spin = 0
+  self.damping = 0.98
+  self.mass = 1.0
 end
 
 function update(self, dt)
   local pos = go.get_position()
   pos = pos + self.velocity * dt
   go.set_position(pos)
-  -- apply simple damping
-  self.velocity = self.velocity * (1 - math.min(dt * 1.5, 0.99))
+  -- simple linear damping
+  local damp = math.max(0, 1 - (1 - self.damping) * dt * 60)
+  self.velocity = self.velocity * damp
+  -- very small threshold to zero
+  if vmath.length(self.velocity) < 1 then self.velocity = vmath.vector3(0,0,0) end
 end
 
 function on_message(self, message_id, message, sender)
   if message_id == hash("kick") then
     -- message: { direction = vmath.vector3(), power = number }
-    self.velocity = message.direction * (message.power or 400)
+    local dir = message.direction or vmath.vector3(1,0,0)
+    local power = message.power or 400
+    -- apply impulse (simple)
+    self.velocity = self.velocity + dir * (power / math.max(0.001, self.mass))
+  elseif message_id == hash("set_velocity") then
+    self.velocity = message.velocity or self.velocity
   end
 end
 

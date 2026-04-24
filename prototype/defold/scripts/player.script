@@ -1,27 +1,83 @@
--- player.script — simple Defold component stub
+-- player.script — functional player controller for Defold starter
 
 local M = {}
+local json = require("dkjson") -- optional; only used if decoding constants in-file
 
 function init(self)
-  self.speed = 120 -- pixels per second (tune from game_constants)
-  self.velocity = vmath.vector3(0,0,0)
-  self.target = nil
+  -- tuning
+  self.speed = 240 -- pixels per second; tune from game_constants.json
+  self.kick_range = 48 -- pixels
+  self.kick_power = 800 -- impulse applied to ball
+  self.move = vmath.vector3(0,0,0)
+  -- input state
+  self.input = { x = 0, y = 0 }
+  self.ball_path = "/ball#ball" -- default path to the ball GO; ensure your ball GO has id 'ball'
   msg.post("", "acquire_input_focus")
 end
 
 function update(self, dt)
-  if self.target then
-    local pos = go.get_position()
-    local dir = vmath.normalize(self.target - pos)
-    local move = dir * self.speed * dt
-    go.set_position(pos + move)
+  -- simple movement from input vector
+  local pos = go.get_position()
+  if self.input.x ~= 0 or self.input.y ~= 0 then
+    local dir = vmath.normalize(vmath.vector3(self.input.x, self.input.y, 0))
+    local delta = dir * (self.speed * dt)
+    go.set_position(pos + delta)
+  end
+  -- face movement direction (optional)
+  if self.input.x ~= 0 or self.input.y ~= 0 then
+    local angle = math.atan2(self.input.y, self.input.x)
+    go.set_rotation(vmath.quat_rotation_z(angle))
   end
 end
 
 function on_input(self, action_id, action)
+  -- keyboard & touch handling
+  if action_id == hash("left") or action_id == hash("move_left") then
+    self.input.x = (action.pressed and -1) or (action.released and 0) or self.input.x
+  elseif action_id == hash("right") or action_id == hash("move_right") then
+    self.input.x = (action.pressed and 1) or (action.released and 0) or self.input.x
+  elseif action_id == hash("up") or action_id == hash("move_up") then
+    self.input.y = (action.pressed and 1) or (action.released and 0) or self.input.y
+  elseif action_id == hash("down") or action_id == hash("move_down") then
+    self.input.y = (action.pressed and -1) or (action.released and 0) or self.input.y
+  end
+
+  -- mouse/touch click -> set move target or perform kick if near ball
   if action_id == hash("touch") or action_id == hash("click") then
-    -- store last touched position as target (example)
-    self.target = vmath.vector3(action.x, action.y, 0)
+    if action.released then
+      local click_pos = vmath.vector3(action.x, action.y, 0)
+      -- if close to ball, kick; else move to click position
+      local ok, ball_pos = pcall(function() return go.get_position(self.ball_path) end)
+      if ok and ball_pos then
+        local dist = vmath.length(ball_pos - click_pos)
+        if dist < self.kick_range then
+          -- kick towards click_pos
+          local dir = vmath.normalize(click_pos - ball_pos)
+          msg.post(self.ball_path, hash("kick"), { direction = dir, power = self.kick_power })
+          return
+        end
+      end
+      -- set movement towards click
+      local pos = go.get_position()
+      local dir = vmath.normalize(click_pos - pos)
+      self.input.x = dir.x
+      self.input.y = dir.y
+    end
+  end
+
+  -- keyboard kick (space)
+  if action_id == hash("kick") and action.pressed then
+    -- attempt to kick ball if in range
+    local ok, ball_pos = pcall(function() return go.get_position(self.ball_path) end)
+    if ok and ball_pos then
+      local pos = go.get_position()
+      local dist = vmath.length(ball_pos - pos)
+      if dist <= self.kick_range then
+        local dir = vmath.normalize(ball_pos - pos)
+        -- kick away from player (towards opponent goal typically)
+        msg.post(self.ball_path, hash("kick"), { direction = dir, power = self.kick_power })
+      end
+    end
   end
 end
 

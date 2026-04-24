@@ -1,16 +1,27 @@
 -- main.script — minimal game manager
+-- main.script — minimal game manager
 
 local M = {}
 
 function init(self)
-  -- load constants if desired
-  -- local json = sys.load_resource("/data/game_constants.json")
-  -- self.constants = json.decode(json)
   print("Defold starter: init")
+  -- Note: for the starter project, create a game object in the editor with id 'ball'
+  -- and player game object(s) with scripts that assume the ball GO path is '/ball#ball'.
+  -- This script is a placeholder to manage global state, scoring and simple test setup.
+  self.tick = 0
 end
 
 function update(self, dt)
-  -- global tick, manage teams, AI updates, etc.
+  self.tick = self.tick + dt
+  -- every second, print velocity of ball for debugging (optional)
+  if self.tick > 1 then
+    local ok, ball_pos = pcall(function() return go.get_position("/ball#ball") end)
+    if ok and ball_pos then
+      -- debug: print ball position
+      print("ball:", ball_pos.x, ball_pos.y)
+    end
+    self.tick = 0
+  end
 end
 
 return M
