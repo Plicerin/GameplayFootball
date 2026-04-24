@@ -1,0 +1,72 @@
+{
+  "velocities": {
+    "idle": 0.0,
+    "dribble": 3.5,
+    "walk": 5.0,
+    "sprint": 9.5,
+    "animSprint": 9.5
+  },
+  "velocity_switches": {
+    "idleDribbleSwitch": 1.8,
+    "dribbleWalkSwitch": 4.2,
+    "walkSprintSwitch": 6.5
+  },
+  "controls": {
+    "quantizeDirection": true,
+    "analogStickDeadzone": 0.75
+  },
+  "camera": {
+    "defaultZoom": 0.5,
+    "defaultHeight": 0.3,
+    "defaultFOV": 0.4,
+    "defaultAngleFactor": 0.0
+  },
+  "match": {
+    "defaultDifficulty": 0.6,
+    "defaultMatchDuration": 0.4,
+    "playerNum": 11
+  },
+  "player": {
+    "defaultHeight": 1.92,
+    "defaultTouchOffset_ms": 80
+  },
+  "physics": {
+    "distanceToVelocityMultiplier": 1.8,
+    "ballPredictionSize_ms": 3000,
+    "ballHistorySize_ms": 4000,
+    "ballDistanceOptimizeThreshold": 10.0
+  },
+  "pitch": {
+    "halfWidth": 55.0,
+    "halfHeight": 36.0,
+    "fullHalfWidth": 60.0,
+    "fullHalfHeight": 40.0,
+    "lineHalfWidth": 0.06
+  },
+  "goal": {
+    "depth": 2.55,
+    "height": 2.5,
+    "halfWidth": 3.7
+  },
+  "timing": {
+    "temporalSmoother_history_ms": 20
+  },
+  "auto_pass_shot_defaults": {
+    "shortPass": {"autoDirection": 0.4, "autoPower": 0.7},
+    "throughPass": {"autoDirection": 0.2, "autoPower": 0.7},
+    "highPass": {"autoDirection": 0.2, "autoPower": 0.5},
+    "shot": {"autoDirection": 0.2}
+  },
+  "roles": {
+    "GK": 0,
+    "CB": 1,
+    "LB": 2,
+    "RB": 3,
+    "DM": 4,
+    "CM": 5,
+    "LM": 6,
+    "RM": 7,
+    "AM": 8,
+    "CF": 9
+  }
+}
