@@ -4,9 +4,12 @@
 local M = {}
 
 function init(self)
-  self.speed = 220
-  self.kick_range = 48
-  self.kick_power = 700
+  -- Balanced tuning: comparable to player defaults
+  self.speed = 235
+  self.kick_range = 52
+  self.kick_power = 760
+  self.kick_cooldown = 1.0 -- seconds between kicks
+  self.last_kick_time = -10
   -- target goal position (right goal). Tune as needed for your scene scale
   self.opponent_goal = vmath.vector3(600, 0, 0)
   self.ball_path = "/ball#ball"
@@ -26,9 +29,13 @@ function update(self, dt)
       local angle = math.atan2(dir.y, dir.x)
       go.set_rotation(vmath.quat_rotation_z(angle))
     else
-      -- kick towards opponent goal
-      local dir = vmath.normalize(self.opponent_goal - ball_pos)
-      msg.post(self.ball_path, hash("kick"), { direction = dir, power = self.kick_power })
+      -- kick towards opponent goal with cooldown
+      self.last_kick_time = (self.last_kick_time or 0) + dt
+      if self.last_kick_time >= self.kick_cooldown then
+        local dir = vmath.normalize(self.opponent_goal - ball_pos)
+        msg.post(self.ball_path, hash("kick"), { direction = dir, power = self.kick_power })
+        self.last_kick_time = 0
+      end
     end
   else
     -- no ball found: simple idle behaviour

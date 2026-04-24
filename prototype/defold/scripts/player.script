@@ -6,8 +6,8 @@ local json = require("dkjson") -- optional; only used if decoding constants in-f
 function init(self)
   -- tuning
   self.speed = 240 -- pixels per second; tune from game_constants.json
-  self.kick_range = 48 -- pixels
-  self.kick_power = 800 -- impulse applied to ball
+  self.kick_range = 52 -- pixels
+  self.kick_power = 760 -- impulse applied to ball (tuned for balance)
   self.move = vmath.vector3(0,0,0)
   -- input state
   self.input = { x = 0, y = 0 }
