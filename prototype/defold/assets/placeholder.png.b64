@@ -1,0 +1,7 @@
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVQYV2NgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=
+
+-- This file contains a base64-encoded 1x1 PNG (transparent).
+-- To use it in Defold:
+-- 1. Decode the base64 to `placeholder.png` (example on PowerShell):
+--    [System.Convert]::FromBase64String((Get-Content placeholder.png.b64)) | Set-Content -Encoding Byte placeholder.png
+-- 2. Place `placeholder.png` next to this `.atlas` file and open the atlas in Defold.

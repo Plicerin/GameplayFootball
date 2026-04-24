@@ -1,0 +1,6 @@
+-- placeholder.atlas (Defold atlas placeholder)
+-- Replace `placeholder.png` with your sprite sheet and edit atlas in the Defold editor.
+
+texture: placeholder.png
+
+region: placeholder 0 0 1 1
