@@ -1,0 +1,18 @@
+Ball game object (editor copy-paste instructions)
+
+1) Create a Game Object named `ball.go`.
+
+2) Add components:
+- Sprite
+  - Image: `prototype/defold/assets/placeholder.atlas`
+  - Region: `placeholder`
+- Script
+  - Script path: `/scripts/ball.script`
+
+3) Set Game Object properties:
+- Id: `ball`
+
+4) Place `ball.go` into `main.collection` and position near center of the pitch.
+
+5) Debugging:
+- `main.script` prints the ball position periodically for quick verification.

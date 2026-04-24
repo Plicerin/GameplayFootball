@@ -1,0 +1,20 @@
+Player factory (editor copy-paste instructions)
+
+1) Create a Game Object (File -> New -> Game Object) and name it `player.go`.
+
+2) Add components:
+- Sprite
+  - Image: `prototype/defold/assets/placeholder.atlas`
+  - Default Region: `placeholder`
+- Script
+  - Script path: `/scripts/player.script`
+
+3) Set Game Object properties:
+- Id: `player`
+
+4) To make a factory for players (for spawning multiple players):
+- Right-click the `player.go` file in the Assets pane -> Create Factory.
+- Place the factory in a collection and call `factory:create()` from a script to spawn players.
+
+5) Notes:
+- The `player.script` expects the ball game object path `/ball#ball`. If you change the ball id, update the path in `player.script`.
