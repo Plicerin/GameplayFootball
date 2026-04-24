@@ -1,6 +1,8 @@
 [project]
 title = 11versus11 Pixel Soccer Mini
 version = 0.1
+main.collection = "/logic/main.collection"
+input.binding = "/input/game.input_binding"
 
 [display]
 width = 1280
