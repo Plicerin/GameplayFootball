@@ -1,3 +1,16 @@
+Helper script
+- There's a helper to make recreating the collection in the Defold Editor easier:
+
+    `prototype/defold/tools/recreate_main_collection.ps1`
+
+    Run it from PowerShell. It will rename any stub collection files so Defold won't try to parse them, create a `recreate_collection_instructions.txt` file with step-by-step Editor actions, open the instructions in Notepad, and open the project folder in Explorer.
+
+Next options I can take for you:
+ - Add initial properties (position/team/id) into the factories and/or `.go` defaults.
+ - Create a spawner Game Object that contains factory components and auto-creates instances at runtime.
+ - Update `prototype/defold/README.md` with step-by-step Editor instructions.
+ - Commit these changes and push them to the remote.
+ - Which one should I do next?
 # Defold Starter — Quick Setup
 
 Steps to open and run the 1v1 prototype in the Defold Editor:
