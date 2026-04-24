@@ -1,3 +1,29 @@
+# Defold Starter — Quick Setup
+
+Steps to open and run the 1v1 prototype in the Defold Editor:
+
+1. Run the helper to decode the placeholder assets (if you haven't already):
+
+```powershell
+cd "c:\Users\vrock\OneDrive\Documents\Gameplay Football\GameplayFootball-defold\prototype\defold"
+.\setup_defold_project.ps1
+```
+
+2. Open the Defold Editor and `Open Project` → choose this folder.
+
+3. In the `Assets` view you should see `player.go`, `ai_player.go`, `ball.go`, and `spawner.go`.
+
+4. Open `spawner.go` and verify factory component targets. If the factory components appear as missing,
+   right-click the `.factory` files and create factory components, or re-link them in the Editor.
+
+5. Open `main.collection` in the Editor (or create a new collection) and add `spawner.go` to the scene.
+
+6. Run the collection — the spawner will create the player, AI, and ball instances at startup.
+
+Notes:
+- The placeholder atlas uses the single animation named `placeholder`. Replace with proper sprites and atlases.
+- The `spawner.script` creates initial properties for `team` and `id` on the spawned objects. Scripts on `player` and `ai` should read those properties.
+- For advanced setup, create `.factory` components inside a dedicated Game Object instead of using the GO-level factories.
 # 11versus11 Pixel Soccer Mini — Defold Starter
 
 This folder contains a minimal Defold project skeleton to start the migration.

@@ -1,1 +1,4 @@
+
 prototype: "/player.go"
+# Default properties are assigned at creation by the spawner; editors may set other defaults.
+

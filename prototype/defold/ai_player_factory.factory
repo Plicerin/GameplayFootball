@@ -1,1 +1,4 @@
+
 prototype: "/ai_player.go"
+# Default properties (team/id) are provided at spawn via the `spawner` script.
+

@@ -1,1 +1,4 @@
+
 prototype: "/ball.go"
+# Ball created at center by the spawner; adjust in Editor if needed.
+

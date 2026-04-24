@@ -1,3 +1,22 @@
+local vmath = vmath
+
+function init(self)
+  -- Spawn player
+  local player_pos = vmath.vector3(-250, 0, 0)
+  factory.create("#player_factory", player_pos, nil, {team = 1, id = "player1"})
+
+  -- Spawn AI opponent
+  local ai_pos = vmath.vector3(250, 0, 0)
+  factory.create("#ai_player_factory", ai_pos, nil, {team = 2, id = "ai1"})
+
+  -- Spawn ball in center
+  local ball_pos = vmath.vector3(0, 0, 0)
+  factory.create("#ball_factory", ball_pos)
+end
+
+function update(self, dt)
+  -- no-op; spawner is passive after init
+end
 -- spawner.script — attempts to spawn player and ball at runtime
 -- Usage:
 -- 1) Create `player.go` and `ball.go` in the editor and create factories from them named
