@@ -1,0 +1,38 @@
+-- ai_opponent.script — simple rule-based AI for prototype
+-- Behaviour: chase the ball, and if within kick range, kick towards opponent goal
+
+local M = {}
+
+function init(self)
+  self.speed = 220
+  self.kick_range = 48
+  self.kick_power = 700
+  -- target goal position (right goal). Tune as needed for your scene scale
+  self.opponent_goal = vmath.vector3(600, 0, 0)
+  self.ball_path = "/ball#ball"
+end
+
+function update(self, dt)
+  local ok, ball_pos = pcall(function() return go.get_position(self.ball_path) end)
+  local pos = go.get_position()
+  if ok and ball_pos then
+    local to_ball = ball_pos - pos
+    local dist = vmath.length(to_ball)
+    if dist > self.kick_range then
+      -- move towards ball
+      local dir = vmath.normalize(to_ball)
+      local delta = dir * (self.speed * dt)
+      go.set_position(pos + delta)
+      local angle = math.atan2(dir.y, dir.x)
+      go.set_rotation(vmath.quat_rotation_z(angle))
+    else
+      -- kick towards opponent goal
+      local dir = vmath.normalize(self.opponent_goal - ball_pos)
+      msg.post(self.ball_path, hash("kick"), { direction = dir, power = self.kick_power })
+    end
+  else
+    -- no ball found: simple idle behaviour
+  end
+end
+
+return M

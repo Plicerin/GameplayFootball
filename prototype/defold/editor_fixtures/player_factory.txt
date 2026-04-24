@@ -18,3 +18,13 @@ Player factory (editor copy-paste instructions)
 
 5) Notes:
 - The `player.script` expects the ball game object path `/ball#ball`. If you change the ball id, update the path in `player.script`.
+
+-- AI Player (opponent)
+To create a simple AI-controlled opponent:
+1) Create a Game Object `ai_player.go`.
+2) Add components:
+ - Sprite: placeholder.atlas / placeholder
+ - Script: `/scripts/ai_opponent.script`
+3) Set Id: `ai_player`
+4) Create a Factory from `ai_player.go` and name it `ai_player_factory`.
+

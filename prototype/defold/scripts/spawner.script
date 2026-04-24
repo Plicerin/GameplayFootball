@@ -11,6 +11,7 @@ function init(self)
   -- factory URLs (adjust if you placed factories in subfolders)
   self.player_factory_url = "/player_factory#player_factory"
   self.ball_factory_url = "/ball_factory#ball_factory"
+  self.ai_factory_url = "/ai_player_factory#ai_player_factory"
   self.spawn_positions = {
     player = vmath.vector3(-100, 0, 0),
     ball = vmath.vector3(0, 0, 0)
@@ -19,6 +20,7 @@ function init(self)
   -- try to create instances via factories (pcall to avoid errors if not present)
   local ok1, id1 = pcall(function() return factory.create(self.player_factory_url, self.spawn_positions.player) end)
   local ok2, id2 = pcall(function() return factory.create(self.ball_factory_url, self.spawn_positions.ball) end)
+  local ok3, id3 = pcall(function() return factory.create(self.ai_factory_url, self.spawn_positions.ai) end)
 
   if ok1 and ok2 then
     print("Spawner: created player and ball via factories")
@@ -26,6 +28,12 @@ function init(self)
     if not ok1 then print("Spawner: player_factory not found at " .. self.player_factory_url) end
     if not ok2 then print("Spawner: ball_factory not found at " .. self.ball_factory_url) end
     print("Spawner: To auto-spawn, create factories named 'player_factory' and 'ball_factory' in the editor.")
+  end
+
+  if ok3 then
+    print("Spawner: created AI player via ai_player_factory")
+  else
+    print("Spawner: ai_player_factory not found at " .. self.ai_factory_url .. " — create ai_player GO and factory named 'ai_player_factory'")
   end
 end
 
