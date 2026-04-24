@@ -1,0 +1,16 @@
+[project]
+title = 11versus11 Pixel Soccer Mini
+version = 0.1
+
+[display]
+width = 1280
+height = 720
+scale = 1
+resizeable = false
+
+[input]
+mouse = true
+touch = true
+
+[render]
+texture_filter = NEAREST
