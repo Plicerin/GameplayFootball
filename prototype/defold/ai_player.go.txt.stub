@@ -1,1 +1,0 @@
-Create a Game Object 'ai_player.go' with Sprite + Script -> /scripts/ai_opponent.script. Create Factory 'ai_player_factory'.

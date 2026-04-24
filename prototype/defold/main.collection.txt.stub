@@ -1,1 +1,0 @@
-Open Defold -> File -> New -> Collection -> main.collection. Add 'main.go' (script /scripts/main.script) and 'spawner.go' (script /scripts/spawner.script).

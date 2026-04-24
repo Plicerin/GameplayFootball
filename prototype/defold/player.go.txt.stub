@@ -1,1 +1,0 @@
-Create a Game Object named 'player.go' in the Defold Editor and add Sprite + Script -> /scripts/player.script. Then create a Factory from it named 'player_factory'.
