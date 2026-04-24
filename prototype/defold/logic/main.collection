@@ -1,0 +1,17 @@
+# Main collection stub for Defold starter (logic/main.collection)
+# This is a copy of the editor-ready stub so the Defold project path matches.
+
+instances:
+- name: "player_factory_spawn"
+  prototype: "/player_factory.factory"
+  position: -250, 0, 0
+
+- name: "ai_player_factory_spawn"
+  prototype: "/ai_player_factory.factory"
+  position: 250, 0, 0
+
+- name: "ball_factory_spawn"
+  prototype: "/ball_factory.factory"
+  position: 0, 0, 0
+
+# Notes: open this file in the Defold Editor and recreate the collection using the described instances.

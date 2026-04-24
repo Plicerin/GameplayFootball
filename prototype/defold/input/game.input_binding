@@ -1,0 +1,16 @@
+{
+  "description": "Recommended input bindings for 11versus11 Pixel Soccer Mini (Defold).",
+  "bindings": [
+    { "id": "move_left",  "type": "key", "keys": ["a", "left"] },
+    { "id": "move_right", "type": "key", "keys": ["d", "right"] },
+    { "id": "move_up",    "type": "key", "keys": ["w", "up"] },
+    { "id": "move_down",  "type": "key", "keys": ["s", "down"] },
+    { "id": "kick",       "type": "key", "keys": ["space"] },
+    { "id": "click",      "type": "mouse", "buttons": ["left"] },
+    { "id": "touch",      "type": "touch", "gestures": ["tap"] }
+  ],
+
+  "notes": "Import these into Project > Input in the Defold Editor or recreate bindings there.",
+
+  "example_usage": "Listen for hash('move_left'), hash('kick'), and mouse/touch events in scripts."
+}
