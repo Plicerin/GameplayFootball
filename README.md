@@ -1,4 +1,4 @@
-# Gameplay Football
+# 11versus11 Pixel Soccer Mini
 Football game, discontinued
 
 *update: vi3itor has forked this project: https://github.com/vi3itor/GameplayFootball; "The goal of this repository is to update the existing code, based on Google Brain's changes (see google_brain branch) and other forks, and make it compiling and running on as many platforms as possible. PRs are always welcome."
