@@ -9,7 +9,7 @@ function init(self)
   self.kick_range = 52
   self.kick_power = 760
   self.kick_cooldown = 1.0 -- seconds between kicks
-  self.last_kick_time = -10
+  self.kick_timer = 0
   -- target goal position (right goal). Tune as needed for your scene scale
   self.opponent_goal = vmath.vector3(600, 0, 0)
   self.ball_path = "/ball#ball"
@@ -30,15 +30,29 @@ function update(self, dt)
       go.set_rotation(vmath.quat_rotation_z(angle))
     else
       -- kick towards opponent goal with cooldown
-      self.last_kick_time = (self.last_kick_time or 0) + dt
-      if self.last_kick_time >= self.kick_cooldown then
+      self.kick_timer = (self.kick_timer or 0) + dt
+      if self.kick_timer >= self.kick_cooldown then
         local dir = vmath.normalize(self.opponent_goal - ball_pos)
         msg.post(self.ball_path, hash("kick"), { direction = dir, power = self.kick_power })
-        self.last_kick_time = 0
+        self.kick_timer = 0
       end
     end
   else
     -- no ball found: simple idle behaviour
+  end
+end
+
+function on_message(self, message_id, message, sender)
+  if message_id == hash("set_properties") then
+    self.team = message.team or self.team
+    self.id = message.id or self.id
+    if message.ball_path then self.ball_path = message.ball_path end
+    -- set opponent goal based on team (simple two-goal layout)
+    if self.team == 1 then
+      self.opponent_goal = vmath.vector3(600, 0, 0)
+    elseif self.team == 2 then
+      self.opponent_goal = vmath.vector3(-600, 0, 0)
+    end
   end
 end
 

@@ -20,6 +20,11 @@ cd "c:\Users\vrock\OneDrive\Documents\Gameplay Football\GameplayFootball-defold\
 
 6. Run the collection — the spawner will create the player, AI, and ball instances at startup.
 
+Configuration notes
+- The `spawner.script` contains a `self.spawn_config` table at the top where you can set team counts and spawn positions.
+- By default the script creates one player (team 1), one AI (team 2), and one ball. Increase `count` for each team to spawn multiple players.
+- The spawner posts a `set_properties` message to each spawned instance with `team`, `id`, and `ball_path` fields. Both `player.script` and `ai_opponent.script` now handle `set_properties` and will configure themselves accordingly.
+
 Notes:
 - The placeholder atlas uses the single animation named `placeholder`. Replace with proper sprites and atlases.
 - The `spawner.script` creates initial properties for `team` and `id` on the spawned objects. Scripts on `player` and `ai` should read those properties.

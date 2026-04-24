@@ -1,59 +1,43 @@
+-- spawner.script (configurable)
 local vmath = vmath
 
 function init(self)
-  -- Spawn player
-  local player_pos = vmath.vector3(-250, 0, 0)
-  factory.create("#player_factory", player_pos, nil, {team = 1, id = "player1"})
+  -- Configuration: teams, counts and optional explicit positions
+  self.spawn_config = {
+    teams = {
+      { team = 1, count = 1, factory = "#player_factory", positions = { vmath.vector3(-250, 0, 0) } },
+      { team = 2, count = 1, factory = "#ai_player_factory", positions = { vmath.vector3(250, 0, 0) } },
+    },
+    ball = { factory = "#ball_factory", position = vmath.vector3(0, 0, 0), id = "ball" }
+  }
 
-  -- Spawn AI opponent
-  local ai_pos = vmath.vector3(250, 0, 0)
-  factory.create("#ai_player_factory", ai_pos, nil, {team = 2, id = "ai1"})
+  -- Spawn teams
+  for _, team_cfg in ipairs(self.spawn_config.teams) do
+    for i = 1, team_cfg.count do
+      local pos = team_cfg.positions and team_cfg.positions[i] or team_cfg.positions and team_cfg.positions[1] or vmath.vector3(0,0,0)
+      local ok, inst = pcall(function() return factory.create(team_cfg.factory, pos) end)
+      if ok and inst then
+        local props = { team = team_cfg.team, id = (team_cfg.team .. "_" .. i), ball_path = "/ball#ball" }
+        msg.post(inst, "set_properties", props)
+      else
+        print("Spawner: failed to create instance from factory", tostring(team_cfg.factory))
+      end
+    end
+  end
 
-  -- Spawn ball in center
-  local ball_pos = vmath.vector3(0, 0, 0)
-  factory.create("#ball_factory", ball_pos)
+  -- Spawn ball
+  local okb, ib = pcall(function() return factory.create(self.spawn_config.ball.factory, self.spawn_config.ball.position) end)
+  if okb and ib then
+    msg.post(ib, "set_properties", { id = self.spawn_config.ball.id })
+  else
+    print("Spawner: failed to create ball from factory", tostring(self.spawn_config.ball.factory))
+  end
 end
 
 function update(self, dt)
-  -- no-op; spawner is passive after init
-end
--- spawner.script — attempts to spawn player and ball at runtime
--- Usage:
--- 1) Create `player.go` and `ball.go` in the editor and create factories from them named
---    `player_factory` and `ball_factory` (right-click GO -> Create Factory).
--- 2) Place the factories in the root collection (or adjust the paths below).
--- 3) Add a game object with this script to `main.collection` to auto-spawn on init.
-
-local M = {}
-
-function init(self)
-  -- factory URLs (adjust if you placed factories in subfolders)
-  self.player_factory_url = "/player_factory#player_factory"
-  self.ball_factory_url = "/ball_factory#ball_factory"
-  self.ai_factory_url = "/ai_player_factory#ai_player_factory"
-  self.spawn_positions = {
-    player = vmath.vector3(-100, 0, 0),
-    ball = vmath.vector3(0, 0, 0)
-  }
-
-  -- try to create instances via factories (pcall to avoid errors if not present)
-  local ok1, id1 = pcall(function() return factory.create(self.player_factory_url, self.spawn_positions.player) end)
-  local ok2, id2 = pcall(function() return factory.create(self.ball_factory_url, self.spawn_positions.ball) end)
-  local ok3, id3 = pcall(function() return factory.create(self.ai_factory_url, self.spawn_positions.ai) end)
-
-  if ok1 and ok2 then
-    print("Spawner: created player and ball via factories")
-  else
-    if not ok1 then print("Spawner: player_factory not found at " .. self.player_factory_url) end
-    if not ok2 then print("Spawner: ball_factory not found at " .. self.ball_factory_url) end
-    print("Spawner: To auto-spawn, create factories named 'player_factory' and 'ball_factory' in the editor.")
-  end
-
-  if ok3 then
-    print("Spawner: created AI player via ai_player_factory")
-  else
-    print("Spawner: ai_player_factory not found at " .. self.ai_factory_url .. " — create ai_player GO and factory named 'ai_player_factory'")
-  end
+  -- passive spawner
 end
 
-return M
+-- Notes:
+-- - Edit `self.spawn_config` above to change counts and positions before the game starts.
+-- - Factories referenced use component ids defined on `spawner.go` ("#player_factory", "#ai_player_factory", "#ball_factory").

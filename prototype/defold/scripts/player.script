@@ -81,4 +81,12 @@ function on_input(self, action_id, action)
   end
 end
 
+function on_message(self, message_id, message, sender)
+  if message_id == hash("set_properties") then
+    self.team = message.team or self.team
+    self.id = message.id or self.id
+    if message.ball_path then self.ball_path = message.ball_path end
+  end
+end
+
 return M
