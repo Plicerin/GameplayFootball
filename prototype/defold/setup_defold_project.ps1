@@ -36,15 +36,15 @@ if (Test-Path $b64File) {
   [System.Convert]::FromBase64String($token) | Set-Content -Encoding Byte $pngFile
   Write-Host "Wrote $pngFile"
 } else {
-  Write-Warning "$b64File not found — skipping image decode"
+  Write-Warning "$b64File not found - skipping image decode"
 }
 
 # Write simple editor stubs (human-editable instructions)
 $stubs = @{
-  "player.go.txt" = "Create a Game Object named 'player.go' in the Defold Editor and add Sprite + Script -> /scripts/player.script. Then create a Factory from it named 'player_factory'."
-  "ball.go.txt"   = "Create a Game Object named 'ball.go' and add Sprite + Script -> /scripts/ball.script. Create a Factory named 'ball_factory'."
-  "ai_player.go.txt" = "Create a Game Object 'ai_player.go' with Sprite + Script -> /scripts/ai_opponent.script. Create Factory 'ai_player_factory'."
-  "main.collection.txt" = "Open Defold -> File -> New -> Collection -> main.collection. Add 'main.go' (script /scripts/main.script) and 'spawner.go' (script /scripts/spawner.script)."
+  "player.go.txt" = "Create a Game Object named 'player.go' in the Defold Editor and add Sprite + Script -> /scripts/player.script. Then create a Factory from it named 'player_factory'.";
+  "ball.go.txt"   = "Create a Game Object named 'ball.go' and add Sprite + Script -> /scripts/ball.script. Create a Factory named 'ball_factory'.";
+  "ai_player.go.txt" = "Create a Game Object 'ai_player.go' with Sprite + Script -> /scripts/ai_opponent.script. Create Factory 'ai_player_factory'.";
+  "main.collection.txt" = "Open Defold -> File -> New -> Collection -> main.collection. Add 'main.go' (script /scripts/main.script) and 'spawner.go' (script /scripts/spawner.script).";
 }
 
 foreach ($name in $stubs.Keys) {
@@ -54,6 +54,6 @@ foreach ($name in $stubs.Keys) {
 }
 
 Write-Host "Opening project folder in Explorer..."
-Start-Process explorer.exe -ArgumentList ("`"$PSScriptRoot`"")
+Start-Process explorer.exe -ArgumentList $PSScriptRoot
 
-Write-Host "Setup helper finished. Please open the project in the Defold Editor and follow the stub instructions to create Game Objects and Factories."
+Write-Host 'Setup helper finished. Please open the project in the Defold Editor and follow the stub instructions to create Game Objects and Factories.'
