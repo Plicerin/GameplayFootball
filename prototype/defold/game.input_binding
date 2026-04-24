@@ -1,0 +1,18 @@
+{
+  "description": "Recommended input bindings for 11versus11 Pixel Soccer Mini (Defold). Import these into Defold's input bindings UI.",
+  "bindings": [
+    { "id": "move_left",  "type": "key", "keys": ["a", "left"] },
+    { "id": "move_right", "type": "key", "keys": ["d", "right"] },
+    { "id": "move_up",    "type": "key", "keys": ["w", "up"] },
+    { "id": "move_down",  "type": "key", "keys": ["s", "down"] },
+    { "id": "kick",       "type": "key", "keys": ["space"] },
+    { "id": "click",      "type": "mouse", "buttons": ["left"] },
+    { "id": "touch",      "type": "touch", "gestures": ["tap"] }
+  ],
+
+  "notes": "Defold stores input bindings in the editor; paste these entries into Project > Input in the Defold editor. For mouse/touch use the 'mouse' and 'touch' bindings respectively. If you prefer, open Project > Input and add the same ids and key mappings manually.",
+
+  "power_user_cmd": "To programmatically set bindings, create an 'input' asset in Defold and edit via the editor or use the Defold HTTP API for project automation.",
+
+  "example_usage": "In `player.script` we listen for action ids like hash('move_left'), hash('kick') and mouse/touch events mapped to 'click'/'touch'."
+}
