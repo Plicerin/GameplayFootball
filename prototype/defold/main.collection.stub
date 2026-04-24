@@ -1,0 +1,20 @@
+# Main collection stub for Defold starter
+# Open this file in the Defold Editor and convert these entries to real instances.
+
+instances:
+- name: "player_factory_spawn"
+  prototype: "/player_factory.factory"
+  position: -250, 0, 0
+
+- name: "ai_player_factory_spawn"
+  prototype: "/ai_player_factory.factory"
+  position: 250, 0, 0
+
+- name: "ball_factory_spawn"
+  prototype: "/ball_factory.factory"
+  position: 0, 0, 0
+
+# Notes:
+# - In the Defold Editor, create a collection, drag the .factory files into the collection,
+#   or create Game Objects using the .go prototypes and add them to the scene.
+# - Adjust positions and animations in the Editor; the placeholder atlas uses 'placeholder'.

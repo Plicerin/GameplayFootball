@@ -27,4 +27,3 @@ To create a simple AI-controlled opponent:
  - Script: `/scripts/ai_opponent.script`
 3) Set Id: `ai_player`
 4) Create a Factory from `ai_player.go` and name it `ai_player_factory`.
-

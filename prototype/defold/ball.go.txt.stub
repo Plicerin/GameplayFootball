@@ -1,0 +1,1 @@
+Create a Game Object named 'ball.go' and add Sprite + Script -> /scripts/ball.script. Create a Factory named 'ball_factory'.
