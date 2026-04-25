@@ -284,6 +284,17 @@ int main(int argc, const char** argv) {
 
   int timeStep_ms = config->GetInt("physics_frametime_ms", 10);
 
+#if defined(WIN32)
+  // Allocate a console for debug builds so printf() output is visible
+  if (!IsReleaseVersion()) {
+    AllocConsole();
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+  }
+#endif
+
 
   // database
 

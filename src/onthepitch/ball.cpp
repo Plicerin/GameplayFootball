@@ -7,6 +7,8 @@
 #include "utils/objectloader.hpp"
 #include "scene/objectfactory.hpp"
 
+#include <stdio.h>
+
 #include "managers/usereventmanager.hpp"
 #include "managers/resourcemanagerpool.hpp"
 
@@ -93,6 +95,17 @@ void Ball::Touch(const Vector3 &target) {
   if (positionBuffer.coords[2] < 0.11f) positionBuffer.coords[2] = 0.11f;
 
   SetMomentum(target);
+
+  // universal instrumentation: log every ball touch speed so we capture passes/shots
+  printf("BALL_TOUCH speed=%f m/s\n", momentum.GetLength());
+  // also append to a log file so we capture touches when stdout isn't visible
+  {
+    FILE *f = fopen("ball_speeds.log", "a");
+    if (f) {
+      fprintf(f, "BALL_TOUCH speed=%f m/s\n", momentum.GetLength());
+      fclose(f);
+    }
+  }
 
   // recalculate prediction
   CalculatePrediction();

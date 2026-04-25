@@ -1062,12 +1062,14 @@ Player *AI_GetBestSwitchTargetPlayer(Match *match, Team *team, const Vector3 &de
 
 void AI_GetAutoPass(e_FunctionType passType, const Vector3 &vector, Vector3 &resultingDirection, float &resultingPower) {
   float heightOffset = 0.11f;
-  float powerFactor = 1.8f;//1.6f
-  float distanceExp = 1.4f;
+  // reduce default pass power to slow down pass travel speed
+  float powerFactor = 1.2f; // previously 1.8f
+  float distanceExp = 1.2f;
   if (passType == e_FunctionType_HighPass) {
-    heightOffset = 0.45f - NormalizedClamp(vector.GetLength(), 0.0f, 60.0f) * 0.15f;// 0.37f;
-    powerFactor = 1.15f;//1.75
-    distanceExp = 1.4f;//1.6
+    heightOffset = 0.45f - NormalizedClamp(vector.GetLength(), 0.0f, 60.0f) * 0.15f;
+    // high passes should also be toned down a bit
+    powerFactor = 0.95f; // previously 1.15f
+    distanceExp = 1.2f;
   }
   resultingDirection = (vector.GetNormalized(0) + Vector3(0, 0, heightOffset)).GetNormalized(0);
   resultingPower = pow(NormalizedClamp(vector.GetLength(), 0.0f, 60.0f), distanceExp) * powerFactor;

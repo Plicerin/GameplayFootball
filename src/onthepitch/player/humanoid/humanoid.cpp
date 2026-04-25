@@ -423,6 +423,8 @@ void Humanoid::Process() {
         if (player->GetDebug() && bumpyRideBias > 0.01f) printf("bumpyridebias (trap): %f\n", bumpyRideBias);
 
         match->GetBall()->Touch(touchVec);
+        // log pass speed for instrumentation
+        printf("PASS_SPEED player=%d type=%d speed=%f m/s\n", CastPlayer()->GetID(), (int)currentAnim->functionType, touchVec.GetLength());
         match->GetBall()->SetRotation(xRot, yRot, 0, 0.5f * (1.0f - bumpyRideBias));
 
         team->SetLastTouchPlayer(CastPlayer(), GetTouchTypeForBodyPart(currentAnim->anim->GetVariable("touch_bodypart")));
@@ -441,6 +443,8 @@ void Humanoid::Process() {
         if (player->GetDebug() && bumpyRideBias > 0.01f) printf("bumpyridebias (ballcontrol): %f\n", bumpyRideBias);
 
         match->GetBall()->Touch(touchVec);
+        // log shot speed for instrumentation
+        printf("SHOT_SPEED player=%d speed=%f m/s\n", CastPlayer()->GetID(), touchVec.GetLength());
         match->GetBall()->SetRotation(xRot, yRot, 0, 0.6f * (1.0f - bumpyRideBias)); // 1.0
 
         team->SetLastTouchPlayer(CastPlayer(), GetTouchTypeForBodyPart(currentAnim->anim->GetVariable("touch_bodypart")));
@@ -495,7 +499,16 @@ void Humanoid::Process() {
         //if (targetPlayer) SetGreenDebugPilon(targetPlayer->GetPosition());
 
         float zcurve = 0.0f;
-        Vector3 touchVec = ballDirection * 36 * (ballPower + 0.3f);
+        // compute pass velocity with per-pass-type base multiplier,
+        // small randomness and a light skill-based modifier so not all passes look identical
+        float baseMultiplier = 22.0f;
+        if (currentAnim->functionType == e_FunctionType_HighPass) baseMultiplier = 26.0f;
+        else if (currentAnim->functionType == e_FunctionType_LongPass) baseMultiplier = 24.0f;
+        float passSkill = CastPlayer()->GetStat("technical_shortpass");
+        if (currentAnim->functionType == e_FunctionType_HighPass) passSkill = CastPlayer()->GetStat("technical_highpass");
+        float rngFactor = random(0.85f, 1.15f);
+        float skillFactor = 0.9f + passSkill * 0.2f; // ranges ~0.9..1.1
+        Vector3 touchVec = ballDirection * baseMultiplier * (ballPower + 0.3f) * rngFactor * skillFactor;
 
         if (_PassFiddlingEnabled()) {
           //SetGreenDebugPilon(match->GetBall()->Predict(0).Get2D() + touchVec.Get2D() * 0.4f);
@@ -520,6 +533,8 @@ void Humanoid::Process() {
 
         match->GetBall()->Touch(touchVec);
         match->GetBall()->TriggerBallTouchSound(pow(NormalizedClamp(touchVec.GetLength(), 4.0f, 40.0f), 0.7f));
+        // log pass speed for instrumentation
+        printf("PASS_SPEED player=%d type=%d speed=%f m/s\n", CastPlayer()->GetID(), (int)currentAnim->functionType, touchVec.GetLength());
 
         float forwardness = 3.5f;
         if (currentAnim->functionType == e_FunctionType_HighPass) forwardness = -1.3f;
@@ -578,6 +593,7 @@ void Humanoid::Process() {
         if (player->GetDebug() && bumpyRideBias > 0.01f) printf("bumpyridebias (interfere): %f\n", bumpyRideBias);
 
         match->GetBall()->Touch(touchVec);
+        printf("TOUCH_SPEED player=%d type=%d speed=%f m/s\n", CastPlayer()->GetID(), (int)currentAnim->functionType, touchVec.GetLength());
         match->GetBall()->SetRotation(xRot, yRot, 0.3f * (1.0f - bumpyRideBias));
         team->SetLastTouchPlayer(CastPlayer(), e_TouchType_Accidental); // it's not truly accidental, but the resulting direction somewhat is, so goalies may fetch these balls
       }
@@ -608,6 +624,7 @@ void Humanoid::Process() {
           if (Verbose() && bumpyRideBias > 0.01f) printf("bumpyridebias (deflect): %f\n", bumpyRideBias);
 
           match->GetBall()->Touch(touchVec);
+          printf("TOUCH_SPEED player=%d type=%d speed=%f m/s\n", CastPlayer()->GetID(), (int)currentAnim->functionType, touchVec.GetLength());
           match->GetBall()->SetRotation(0, 0, 0, 0.2f * (1.0f - bumpyRideBias));
         }
         team->SetLastTouchPlayer(CastPlayer(), e_TouchType_Accidental);
@@ -622,6 +639,7 @@ void Humanoid::Process() {
         if (player->GetDebug() && bumpyRideBias > 0.01f) printf("bumpyridebias (sliding): %f\n", bumpyRideBias);
 
         match->GetBall()->Touch(touchVec);
+        printf("TOUCH_SPEED player=%d type=%d speed=%f m/s\n", CastPlayer()->GetID(), (int)currentAnim->functionType, touchVec.GetLength());
 
         team->SetLastTouchPlayer(CastPlayer(), e_TouchType_Accidental);
       }

@@ -8,8 +8,20 @@ const PITCH = { w: 105, h: 68 };
 const DT = 1 / 20;
 const GAME_SPEED_SCALE = 0.4;
 
-const TEAM_A_COLORS = { shirt: '#dd0000', pants: '#dd0000', hair: '#dd0000', skin: '#dd0000', name: 'RED', keeper: '#ff6666', keeperPants: '#ff6666' };
-const TEAM_B_COLORS = { shirt: '#0044dd', pants: '#0044dd', hair: '#0044dd', skin: '#0044dd', name: 'BLUE', keeper: '#6688ff', keeperPants: '#6688ff' };
+// Tuning constants (mirror prototype)
+const BOOST_MAX_MULT = 1.35;
+const BOOST_MAX_TIME = 120;
+const PASS_MAX_POWER = 22;
+const PASS_LOFT_ATTEN = 0.5;
+const PASS_LOFT_EXP = 1.7;
+// Slightly increase shot base and reduce randomness for better finishing
+const SHOT_BASE = 18 * 1.10;
+const SHOT_RAND = 6 * 0.8;
+
+// Distinct purple for gloves so they stand out in telemetry/rendering.
+const GLOVES_PURPLE = '#8a2be2';
+const TEAM_A_COLORS = { shirt: '#dd0000', pants: '#dd0000', hair: '#dd0000', skin: '#dd0000', name: 'RED', keeper: '#ff6666', keeperPants: '#ff6666', gloves: GLOVES_PURPLE };
+const TEAM_B_COLORS = { shirt: '#0044dd', pants: '#0044dd', hair: '#0044dd', skin: '#0044dd', name: 'BLUE', keeper: '#6688ff', keeperPants: '#6688ff', gloves: GLOVES_PURPLE };
 
 const FORMATIONS = {
   '4-4-2': [
@@ -98,6 +110,9 @@ const telem = {
   events: [],
 };
 
+// Per-team shoot bias: increase RED (side===1) shot propensity for tuning experiments
+const TEAM_SHOOT_BIAS = { RED: 1.4, BLUE: 1.0 };
+
 // ============================================================
 // BUILD
 // ============================================================
@@ -112,6 +127,7 @@ function buildTeam(formationName, side, colors) {
     x: gkX, y: midY, vx: 0, vy: 0,
     side, colors: { ...colors, shirt: colors.keeper },
     isKeeper: true, hasBall: false, tackledImmunity: 0, shotCooldown: 0,
+    touches: 0,
     keeperHandled: false, keeperNoPickUp: 0, shotReaction: 0,
   });
   for (const p of form) {
@@ -125,6 +141,7 @@ function buildTeam(formationName, side, colors) {
       x: hx, y: hy, vx: 0, vy: 0,
       side, colors,
       isKeeper: false, hasBall: false, tackledImmunity: 0, shotCooldown: 0,
+      touches: 0,
     });
   }
   return players;
@@ -191,6 +208,8 @@ function doKickOff(kickingTeam) {
   if (kicker) {
     kicker.x = PITCH.w / 2; kicker.y = PITCH.h / 2;
     ball.owner = kicker; kicker.hasBall = true;
+    kicker.touches = (kicker.touches || 0) + 1;
+    telemEvent(kicker.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${kicker.role} KICKOFF`);
   }
   kickOffCooldown = 40;
 }
@@ -514,7 +533,8 @@ function updateOnBall(player, teammates, opponents, dt) {
     if (target) { doPass(player, target); return; }
   }
   // 4. CLOSE-RANGE SHOT: inside 18m — shoot with ~3% per tick (fires in ~33 frames on avg)
-  if (distToGoal < 18 && canShoot(player, opponents, attackDir) && Math.random() < 0.03) {
+  const sideBias = player.side === 1 ? TEAM_SHOOT_BIAS.RED : TEAM_SHOOT_BIAS.BLUE;
+  if (distToGoal < 18 && canShoot(player, opponents, attackDir) && Math.random() < 0.03 * sideBias) {
     doShoot(player, oppGoalX);
     return;
   }
@@ -530,7 +550,7 @@ function updateOnBall(player, teammates, opponents, dt) {
       }
     }
     // Shot from 18–25m: ~1.5% per tick
-    if (distToGoal < 25 && canShoot(player, opponents, attackDir) && Math.random() < 0.015) {
+    if (distToGoal < 25 && canShoot(player, opponents, attackDir) && Math.random() < 0.015 * sideBias) {
       doShoot(player, oppGoalX);
       return;
     }
@@ -540,7 +560,7 @@ function updateOnBall(player, teammates, opponents, dt) {
       return;
     }
     // After 60 frames: shoot or pass — don't hold forever
-    if (canShoot(player, opponents, attackDir) && Math.random() < 0.08) {
+    if (canShoot(player, opponents, attackDir) && Math.random() < 0.08 * sideBias) {
       doShoot(player, oppGoalX);
       return;
     }
@@ -557,7 +577,12 @@ function updateOnBall(player, teammates, opponents, dt) {
         return;
       }
     }
-    if (distToGoal < 32 && player.holdTime > 60 && canShoot(player, opponents, attackDir) && Math.random() < 0.008) {
+    if (distToGoal < 32 && player.holdTime > 60 && canShoot(player, opponents, attackDir) && Math.random() < 0.008 * sideBias) {
+      doShoot(player, oppGoalX);
+      return;
+    }
+    // Low-probability long-shot override: allow rare attempts from distance up to 60m
+    if (!canShoot(player, opponents, attackDir) && distToGoal <= 60 && Math.random() < 0.02) {
       doShoot(player, oppGoalX);
       return;
     }
@@ -582,7 +607,6 @@ function doPass(from, to) {
   const t = from.side === 1 ? telem.red : telem.blue;
   t.passes++;
   if (from.holdTime) { t.holdTotal += from.holdTime; t.holdCount++; }
-  telemEvent(from.side === 1 ? 'RED' : 'BLUE', 'PASS', `${from.role}→${to.role} (${Math.round(dist(from,to))}m)`);
   from.hasBall = false;
   from.holdTime = 0;
   from.intention = null;
@@ -597,14 +621,27 @@ function doPass(from, to) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const d = Math.hypot(dx, dy);
-  // Power calibrated to harness drag: terminal_dist = power * dt / drag_rate = power * 0.02/0.014
-  // → power = d * 0.7 so ball decelerates to exactly the target distance
-  const power = clamp(d * 0.7, 3, 28);
+  // Power calibrated to harness drag: base power scaled by distance, with
+  // a stronger non-linear attenuation on high-loft passes to reduce extreme speeds.
+  const loftFactor = clamp((d - 12) / 22, 0, 1);
+  const BASE_MULT = 0.7;
+  const MIN_POWER = 3;
+  let rawPower = d * BASE_MULT;
+  if (loftFactor > 0) {
+    const loftAtten = 1 - PASS_LOFT_ATTEN * Math.pow(loftFactor, PASS_LOFT_EXP);
+    rawPower *= loftAtten;
+  }
+  const power = clamp(rawPower, MIN_POWER, PASS_MAX_POWER);
   ball.vx = (dx / d) * power;
   ball.vy = (dy / d) * power;
   // Grace: estimate flight frames = d / (power * dt) * ln(power/(power-d*drag))... approx:
   passGrace = Math.max(20, Math.ceil(d / (power * 0.02) * 1.8));
   passTrail = { x1: from.x, y1: from.y, x2: to.x, y2: to.y, life: 45 };
+  const passSpeed = Math.hypot(ball.vx, ball.vy).toFixed(2);
+  telemEvent(from.side === 1 ? 'RED' : 'BLUE', 'PASS', `${from.role}→${to.role} (${Math.round(d)}m) | ${passSpeed} m/s`);
+  // Record a touch for the passer
+  from.touches = (from.touches || 0) + 1;
+  telemEvent(from.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${from.role} PASS`);
 }
 
 function doShoot(player, goalX) {
@@ -619,14 +656,18 @@ function doShoot(player, goalX) {
   player.shotCooldown = 90;
   ball.owner = null;
   const goalCenterY = PITCH.h / 2;
-  const spread = clamp(3 + distG * 0.05, 3, 5);
-  const goalY = goalCenterY + (Math.random() - 0.5) * 2 * spread;
+  const spread = clamp(2 + distG * 0.03, 2, 4);
+  const goalY = goalCenterY + (Math.random() - 0.5) * 2 * spread * 0.85;
   const dx = goalX - player.x;
   const dy = goalY - player.y;
-  const d = Math.hypot(dx, dy);
-  const power = 22 + Math.random() * 8;
+  const d = Math.hypot(dx, dy) || 1;
+  const power = SHOT_BASE + Math.random() * SHOT_RAND;
   ball.vx = (dx / d) * power;
   ball.vy = (dy / d) * power;
+  // Shooter touched the ball
+  player.touches = (player.touches || 0) + 1;
+  player.shots = (player.shots || 0) + 1;
+  telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${player.role} SHOT from ${distG}m`);
   ball.vz = Math.random() < 0.4 ? (Math.random() * 0.2) : (0.8 + Math.random() * 1.2);
   passGrace = 10; // grace period so defenders don't intercept the shot mid-flight
   lastPasserSide = player.side;
@@ -733,6 +774,10 @@ function getSecondClosestToBall(team) {
 }
 
 function updatePlayerAI(player, teammates, opponents, dt) {
+  // Decrement speed boost timer if active
+  if (player.speedBoostTimer > 0) player.speedBoostTimer--;
+  else { player.speedBoostTimer = player.speedBoostTimer || 0; }
+  player.speedBoostMult = player.speedBoostMult || 1;
   const myTeam = player.side === 1 ? teamA : teamB;
   const oppTeam = player.side === 1 ? teamB : teamA;
   const possession = getTeamPossession(myTeam);
@@ -761,10 +806,21 @@ function updatePlayerAI(player, teammates, opponents, dt) {
       const dx = ball.x - player.x;
       const dy = ball.y - player.y;
       const d = Math.hypot(dx, dy);
-      const speed = player === closest ? 8.5 : 7;
+      let speed = player === closest ? 8.5 : 7;
+      // Opportunistic boost for chasers when ball is far
+      if (d > 6 && Math.random() < 0.12 && player.speedBoostTimer <= 0) {
+        const proposed = 1.2 + Math.random() * 0.3;
+        player.speedBoostMult = Math.min(BOOST_MAX_MULT, proposed);
+        const proposedT = 60 + Math.floor(Math.random() * 120);
+        player.speedBoostTimer = Math.min(BOOST_MAX_TIME, proposedT);
+        telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BOOST', `${player.role} x${player.speedBoostMult.toFixed(2)} for ${player.speedBoostTimer}f`);
+      }
+      if (player.speedBoostTimer > 0) speed *= player.speedBoostMult;
       if (d > 0.5) smoothVelocity(player, (dx / d) * speed, (dy / d) * speed, 0.25);
       if (d < 1.5 && !ball.owner && !(ball.shotInFlight > 0)) {
-        ball.owner = player; player.hasBall = true; player.holdTime = 0; player.intention = null;
+          ball.owner = player; player.hasBall = true; player.holdTime = 0; player.intention = null;
+          player.touches = (player.touches || 0) + 1;
+          telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${player.role} RECEIVED`);
       }
       return;
     }
@@ -772,6 +828,8 @@ function updatePlayerAI(player, teammates, opponents, dt) {
   if (player.hasBall) { player.aiState = 'onball'; updateOnBall(player, teammates, opponents, dt); return; }
   if (!ball.owner && dist(player, ball) < 1.5 && !player.justPassed && !(ball.shotInFlight > 0)) {
     ball.owner = player; player.hasBall = true; player.holdTime = 0; player.intention = null;
+    player.touches = (player.touches || 0) + 1;
+    telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${player.role} PICKUP`);
   }
   player.aiState = possession ? 'support' : 'defend';
   const { tx, ty } = getOffBallTarget(player, teammates, opponents, ball, possession);
@@ -781,7 +839,8 @@ function updatePlayerAI(player, teammates, opponents, dt) {
   const d = Math.hypot(dx, dy);
   if (d > 0.5) {
     const urgency = clamp(normalizedClamp(d, 1, 12), 0.4, 1);
-    const maxSpeed = possession ? 7 : 8;
+    let maxSpeed = possession ? 7 : 8;
+    if (player.speedBoostTimer > 0) maxSpeed *= player.speedBoostMult;
     smoothVelocity(player, (dx / d) * maxSpeed * urgency, (dy / d) * maxSpeed * urgency, 0.2);
   } else {
     smoothVelocity(player, 0, 0, 0.15);
@@ -832,14 +891,17 @@ function checkIntercepts() {
   if (passTargetPlayer && !passTargetPlayer.hasBall && passTargetPlayer.tackledImmunity <= 0) {
     const td = dist(passTargetPlayer, ball);
     if (td < 2.5) {
-      ball.owner = passTargetPlayer;
-      passTargetPlayer.hasBall = true;
-      passTargetPlayer.holdTime = 0;
-      passTargetPlayer.intention = null;
-      passTargetPlayer.tackledImmunity = 25; // settling window: ~1 game-sec before opponent can tackle
-      ball.vx = 0; ball.vy = 0;
-      passGrace = 0;
-      passTargetPlayer = null;
+        ball.owner = passTargetPlayer;
+        passTargetPlayer.hasBall = true;
+        passTargetPlayer.holdTime = 0;
+        passTargetPlayer.intention = null;
+        passTargetPlayer.tackledImmunity = 25; // settling window: ~1 game-sec before opponent can tackle
+        ball.vx = 0; ball.vy = 0;
+        passGrace = 0;
+        // Count touch for receiver
+        passTargetPlayer.touches = (passTargetPlayer.touches || 0) + 1;
+        telemEvent(passTargetPlayer.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${passTargetPlayer.role} RECEIVED`);
+        passTargetPlayer = null;
       return;
     }
   }
@@ -857,6 +919,8 @@ function checkIntercepts() {
       ball.owner = p; p.hasBall = true; p.holdTime = 0; p.intention = null;
       p.tackledImmunity = 15; // loose ball pickup: brief window before opponent can tackle
       ball.vx = 0; ball.vy = 0; passGrace = 0; passTargetPlayer = null;
+      p.touches = (p.touches || 0) + 1;
+      telemEvent(p.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${p.role} PICKUP`);
       return;
     }
   }
@@ -901,8 +965,10 @@ function checkGoal() {
       if (keeper) {
         ball.x = keeper.x; ball.y = keeper.y;
         ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
-        ball.owner = keeper; keeper.hasBall = true; keeper.holdTime = 0;
-        keeper.keeperHandled = true;
+            ball.owner = keeper; keeper.hasBall = true; keeper.holdTime = 0;
+            keeper.keeperHandled = true;
+            keeper.touches = (keeper.touches || 0) + 1;
+            telemEvent(keeper.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${keeper.role} SAVE`);
       }
       return;
     }
@@ -946,6 +1012,8 @@ function resetBallInBounds() {
     if (keeper) {
       keeper.x = gkX; keeper.y = PITCH.h / 2;
       ball.owner = keeper; keeper.hasBall = true; keeper.holdTime = 0; keeper.keeperHandled = true;
+      keeper.touches = (keeper.touches || 0) + 1;
+      telemEvent(defendingSide === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${keeper.role} GOALKICK`);
     }
     telemEvent(defendingSide === 1 ? 'RED' : 'BLUE', 'GOAL KICK', '');
     return;
@@ -964,6 +1032,8 @@ function resetBallInBounds() {
     if (closest) {
       closest.x = ball.x; closest.y = ball.y;
       ball.owner = closest; closest.hasBall = true; closest.holdTime = 0;
+      closest.touches = (closest.touches || 0) + 1;
+      telemEvent(throwSide === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${closest.role} THROW-IN`);
     }
     telemEvent(throwSide === 1 ? 'RED' : 'BLUE', 'THROW-IN', '');
     return;
@@ -997,6 +1067,9 @@ function tick(dt) {
   }
   for (const p of teamA) updatePlayerAI(p, teamA, teamB, dt);
   for (const p of teamB) updatePlayerAI(p, teamB, teamA, dt);
+  // Apply global player speed multiplier for tuning (15% faster)
+  const PLAYER_SPEED_MULT = 1.15;
+  for (const p of allPlayers) { p.vx *= PLAYER_SPEED_MULT; p.vy *= PLAYER_SPEED_MULT; }
   for (const p of allPlayers) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -1006,13 +1079,31 @@ function tick(dt) {
   if (ball.owner) {
     ball.x = ball.owner.x; ball.y = ball.owner.y; ball.z = 0;
   } else {
-    ball.x += ball.vx * dt;
-    ball.y += ball.vy * dt;
-    ball.z += ball.vz * dt;
-    ball.vz -= 20 * dt;
-    if (ball.z < 0) { ball.z = 0; ball.vz = -ball.vz * 0.3; }
-    ball.vx *= (1 - 0.7 * dt);
-    ball.vy *= (1 - 0.7 * dt);
+    // Sub-step ball integration to avoid tunneling at high speeds
+    const dx = ball.vx * dt;
+    const dy = ball.vy * dt;
+    const dist = Math.hypot(dx, dy);
+    const MAX_STEP = 1.0;
+    const steps = Math.min(8, Math.max(1, Math.ceil(dist / MAX_STEP)));
+    const subDt = dt / steps;
+    for (let s = 0; s < steps; s++) {
+      ball.x += ball.vx * subDt;
+      ball.y += ball.vy * subDt;
+      ball.z += ball.vz * subDt;
+      ball.vz -= 20 * subDt;
+      if (ball.z < 0) { ball.z = 0; ball.vz = -ball.vz * 0.3; }
+      ball.vx *= (1 - 0.7 * subDt);
+      ball.vy *= (1 - 0.7 * subDt);
+      // Run collision checks during sub-steps so pickups and saves
+      // are detected at the correct intermediate positions.
+      checkTackles();
+      checkIntercepts();
+      checkGoal();
+      if (ball.owner) {
+        ball.vx = 0; ball.vy = 0; ball.vz = 0;
+        break;
+      }
+    }
   }
   checkTackles();
   checkIntercepts();
@@ -1070,4 +1161,11 @@ const goalEvents = telem.events.filter(e => e.action === 'GOAL');
 if (goalEvents.length > 0) {
   console.log(`Goal details:`);
   for (const g of goalEvents) console.log(`  ${g.time} ${g.team} ${g.detail}`);
+}
+
+// Per-player touches/shots
+console.log('\n=== PLAYER STATS ===');
+for (const p of allPlayers) {
+  const side = p.side === 1 ? 'RED' : 'BLUE';
+  console.log(`${side} ${p.role}: touches ${p.touches || 0} | shots ${p.shots || 0}`);
 }

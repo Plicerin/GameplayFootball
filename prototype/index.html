@@ -107,6 +107,20 @@
 const canvas = document.getElementById('pitch');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
+// Cache frequently-updated DOM nodes to avoid repeated lookups and reflows
+const DOM = {
+  scoreA: document.getElementById('scoreA'), scoreB: document.getElementById('scoreB'),
+  eventLog: document.getElementById('eventLog'),
+  tRedPass: document.getElementById('t-redPass'), tRedShot: document.getElementById('t-redShot'), tRedClear: document.getElementById('t-redClear'), tRedTackle: document.getElementById('t-redTackle'), tRedPoss: document.getElementById('t-redPoss'), tRedHold: document.getElementById('t-redHold'),
+  tBluePass: document.getElementById('t-bluePass'), tBlueShot: document.getElementById('t-blueShot'), tBlueClear: document.getElementById('t-blueClear'), tBlueTackle: document.getElementById('t-blueTackle'), tBluePoss: document.getElementById('t-bluePoss'), tBlueHold: document.getElementById('t-blueHold'),
+  tCmpRedGoal: document.getElementById('t-cmpRedGoal'), tCmpBlueGoal: document.getElementById('t-cmpBlueGoal'), tCmpRedShot: document.getElementById('t-cmpRedShot'), tCmpBlueShot: document.getElementById('t-cmpBlueShot'), tCmpRedPass: document.getElementById('t-cmpRedPass'), tCmpBluePass: document.getElementById('t-cmpBluePass'), tCmpRedTackle: document.getElementById('t-cmpRedTackle'), tCmpBlueTackle: document.getElementById('t-cmpBlueTackle'),
+  tCarrier: document.getElementById('t-carrier'), tAction: document.getElementById('t-action'), tScores: document.getElementById('t-scores'),
+};
+// Telemetry DOM update throttle (ms)
+let _lastTelemDOMUpdate = 0; const TELEMETRY_UPDATE_MS = 500;
+let _telemLogDirty = false;
+// Hide on-screen event log (we still keep `telem.events` for copying)
+if (DOM.eventLog) DOM.eventLog.style.display = 'none';
 
 // --- Pitch dimensions (in "meters", mapped to pixels) ---
 const PITCH = { w: 105, h: 68 };
@@ -114,6 +128,17 @@ const PITCH = { w: 105, h: 68 };
 let OX = 107, OY = 111;
 let SCALE_X = 7.10, SCALE_Y = 4.90;
 let topInset = 85; // px — top (far) side is narrower by this much on each side
+
+// Gameplay tuning constants
+const BOOST_MAX_MULT = 1.35;
+const BOOST_MAX_TIME = 120; // frames (~0.66s at 180t/s)
+const PASS_BASE_MULT = 0.9;
+const PASS_MAX_POWER = 22;
+const PASS_MIN_POWER = 4;
+const PASS_LOFT_ATTEN = 0.5; // up to 50% reduction on high-loft
+const PASS_LOFT_EXP = 1.7;
+const SHOT_BASE = 18;
+const SHOT_RAND = 6;
 
 function toScreen(mx, my) {
   // Bilinear 4-corner perspective mapping:
@@ -127,9 +152,23 @@ function toScreen(mx, my) {
   return [x, y];
 }
 
+function screenToWorld(sx, sy) {
+  // inverse of toScreen. Solve my from y, then mx from x.
+  const my = (sy - OY) / SCALE_Y;
+  const ty = my / PITCH.h;
+  // x = OX + mx*SCALE_X + topInset*(1-ty)*(1-2*(mx/PITCH.w))
+  // => mx * (SCALE_X - 2*topInset*(1-ty)/PITCH.w) = x - OX - topInset*(1-ty)
+  const denom = (SCALE_X - 2 * topInset * (1 - ty) / PITCH.w);
+  const mx = denom !== 0 ? (sx - OX - topInset * (1 - ty)) / denom : 0;
+  return [mx, my];
+}
+
 // --- Team colors ---
-const TEAM_A = { shirt: '#dd0000', pants: '#dd0000', hair: '#dd0000', skin: '#dd0000', name: 'RED', keeper: '#ff6666', keeperPants: '#ff6666' };
-const TEAM_B = { shirt: '#0044dd', pants: '#0044dd', hair: '#0044dd', skin: '#0044dd', name: 'BLUE', keeper: '#6688ff', keeperPants: '#6688ff' };
+// Team palettes. `keeper` defines the goalkeeper kit colour used when building the GK.
+// Use a distinct purple for gloves so they stand out across teams.
+const GLOVES_PURPLE = '#8a2be2'; // blueviolet
+const TEAM_A = { shirt: '#dd0000', pants: '#dd0000', hair: '#dd0000', skin: '#dd0000', name: 'RED', keeper: '#f5d000', gloves: GLOVES_PURPLE };
+const TEAM_B = { shirt: '#0044dd', pants: '#0044dd', hair: '#0044dd', skin: '#0044dd', name: 'BLUE', keeper: '#ff8c00', gloves: GLOVES_PURPLE };
 
 // --- PSL Sprite Patterns (20×16, from gameEngine.ts PLAYER_PATTERNS / PLAYER_IDLE_PATTERNS) ---
 // Characters: 0=transparent, H=hair, S=shirt, P=pants, 1=auto (hair top, pants bottom, skin mid), V=visor/glove
@@ -345,7 +384,7 @@ function drawPSLSprite(cx, cy, pattern, teamColors, facing, scale) {
       if (ch === 'H') color = teamColors.hair;
       else if (ch === 'S') color = teamColors.shirt;
       else if (ch === 'P') color = teamColors.pants;
-      else if (ch === 'V') color = '#7fff00'; // gloves
+      else if (ch === 'V') color = teamColors.gloves || GLOVES_PURPLE; // gloves (use team-defined when available)
       else if (ch === '1') {
         if (r < 2) color = teamColors.hair;
         else if (r === 2 && c > 10 && c < 15) color = teamColors.hair;
@@ -452,8 +491,19 @@ function buildTeam(formationName, side, colors) {
   players.push({
     role: 'GK', homeX: gkX, homeY: midY,
     x: gkX, y: midY, vx: 0, vy: 0,
-    side, colors: { ...colors, shirt: colors.keeper },
+    side,
+    // Override full palette for keepers so the keeper uses a single kit colour.
+    colors: {
+      shirt: colors.keeper,
+      pants: colors.keeper,
+      hair: colors.keeper,
+      skin: colors.keeper,
+      keeper: colors.keeper,
+      keeperPants: colors.keeper,
+      // keep gloves visually distinct: don't override `gloves` here so they remain purple
+    },
     isKeeper: true, hasBall: false, tackledImmunity: 0, shotCooldown: 0,
+    touches: 0,
     keeperHandled: false,  // true while GK is holding ball in hands
     keeperNoPickUp: 0,     // frames remaining where GK can't re-pick the ball
     shotReaction: 0,       // frames since shot was first detected (reaction delay)
@@ -476,6 +526,7 @@ function buildTeam(formationName, side, colors) {
       x: hx, y: hy, vx: 0, vy: 0,
       side, colors,
       isKeeper: false, hasBall: false, tackledImmunity: 0, shotCooldown: 0,
+      touches: 0,
     });
   }
   return players;
@@ -487,6 +538,8 @@ let ball = { x: PITCH.w / 2, y: PITCH.h / 2, vx: 0, vy: 0, z: 0, vz: 0, owner: n
 // --- Game state ---
 let teamA = [], teamB = [], allPlayers = [];
 let score = [0, 0];
+// Goal flash overlay state (frames)
+let goalFlash = { timer: 0, team: null };
 let paused = false;
 let matchTime = 0; // seconds
 let speedMult = 1;
@@ -520,12 +573,13 @@ function resetMatch() {
 
 function doKickOff(kickingTeam) {
   // Reset all positions
-  for (const p of allPlayers) {
-    p.x = p.homeX;
-    p.y = p.homeY;
-    p.vx = 0;
-    p.vy = 0;
-    p.hasBall = false;
+    for (const p of allPlayers) {
+      p.x = p.homeX;
+      p.y = p.homeY;
+      p.vx = 0;
+      p.vy = 0;
+      p.hasBall = false;
+      p.tackledImmunity = 0; // Reset tackled immunity
   }
   // Place ball at center, find the kicking team's CM or ST closest to center
   ball.x = PITCH.w / 2;
@@ -547,6 +601,9 @@ function doKickOff(kickingTeam) {
     kicker.y = PITCH.h / 2;
     ball.owner = kicker;
     kicker.hasBall = true;
+    // Kickoff possession counts as a touch
+    kicker.touches = (kicker.touches || 0) + 1;
+    telemEvent(kicker.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${kicker.role} KICKOFF`);
   }
   kickOffCooldown = 40; // ~0.67 seconds of walking before anyone can shoot
 }
@@ -554,6 +611,11 @@ function doKickOff(kickingTeam) {
 function updateScoreboard() {
   document.getElementById('scoreA').textContent = `RED ${score[0]}`;
   document.getElementById('scoreB').textContent = `BLUE ${score[1]}`;
+}
+
+function signalGoal(team) {
+  goalFlash.timer = 180; // 3 seconds at ~60fps
+  goalFlash.team = team;
 }
 
 // ============================================================
@@ -601,67 +663,32 @@ function telemEvent(team, action, detail) {
   telem.events.push({ time: timeStr, team, action, detail });
   // Keep last 40
   if (telem.events.length > 40) telem.events.shift();
-  // Append to DOM
-  const log = document.getElementById('eventLog');
-  if (log) {
-    const cls = team === 'RED' ? 'ev-red' : 'ev-blue';
-    log.innerHTML += `<br><span class="ev-time">${timeStr}</span><span class="${cls}">${team}</span> <span class="ev-action">${action}</span> ${detail}`;
-    log.scrollTop = log.scrollHeight;
-  }
+  // Mark log dirty and let `telemUpdate` batch DOM writes (reduces reflow frequency)
+  _telemLogDirty = true;
 }
 function telemUpdate() {
+  // Lightweight telemetry tick: keep internal stats but avoid any DOM writes
   telem.totalFrames++;
-  // Track possession frames
   if (ball.owner) {
     if (ball.owner.side === 1) telem.red.possFrames++;
     else telem.blue.possFrames++;
   }
-  const total = telem.red.possFrames + telem.blue.possFrames || 1;
-  // Update DOM
-  document.getElementById('t-redPass').textContent = telem.red.passes;
-  document.getElementById('t-redShot').textContent = telem.red.shots;
-  document.getElementById('t-redClear').textContent = telem.red.clears;
-  document.getElementById('t-redTackle').textContent = telem.red.tacklesWon;
-  document.getElementById('t-redPoss').textContent = Math.round(telem.red.possFrames / total * 100) + '%';
-  document.getElementById('t-redHold').textContent = telem.red.holdCount ? Math.round(telem.red.holdTotal / telem.red.holdCount) + 'f' : '-';
-  document.getElementById('t-bluePass').textContent = telem.blue.passes;
-  document.getElementById('t-blueShot').textContent = telem.blue.shots;
-  document.getElementById('t-blueClear').textContent = telem.blue.clears;
-  document.getElementById('t-blueTackle').textContent = telem.blue.tacklesWon;
-  document.getElementById('t-bluePoss').textContent = Math.round(telem.blue.possFrames / total * 100) + '%';
-  document.getElementById('t-blueHold').textContent = telem.blue.holdCount ? Math.round(telem.blue.holdTotal / telem.blue.holdCount) + 'f' : '-';
-  // VS MLS 2025 comparison — normalize sim stats to per-90-minute rate
-  const matchMinutes = matchTime / 12;
-  if (matchMinutes >= 1) {
-    const per90 = v => Math.round(v * 90 / matchMinutes);
-    const per90f = v => (v * 90 / matchMinutes).toFixed(1);
-    document.getElementById('t-cmpRedGoal').innerHTML  = fmtVsMLS(per90f(score[0]), MLS_AVG.goals);
-    document.getElementById('t-cmpBlueGoal').innerHTML = fmtVsMLS(per90f(score[1]), MLS_AVG.goals);
-    document.getElementById('t-cmpRedShot').innerHTML  = fmtVsMLS(per90(telem.red.shots),  MLS_AVG.shots);
-    document.getElementById('t-cmpBlueShot').innerHTML = fmtVsMLS(per90(telem.blue.shots), MLS_AVG.shots);
-    document.getElementById('t-cmpRedPass').innerHTML  = fmtVsMLS(per90(telem.red.passes),  MLS_AVG.passes);
-    document.getElementById('t-cmpBluePass').innerHTML = fmtVsMLS(per90(telem.blue.passes), MLS_AVG.passes);
-    document.getElementById('t-cmpRedTackle').innerHTML  = fmtVsMLS(per90(telem.red.tacklesWon),  MLS_AVG.tackles);
-    document.getElementById('t-cmpBlueTackle').innerHTML = fmtVsMLS(per90(telem.blue.tacklesWon), MLS_AVG.tackles);
-  }
-  // Ball carrier info
-  if (ball.owner) {
-    const p = ball.owner;
-    const teamName = p.side === 1 ? 'RED' : 'BLUE';
-    document.getElementById('t-carrier').textContent = `${teamName} ${p.role} (${Math.round(p.x)},${Math.round(p.y)}) hold:${p.holdTime || 0}f`;
-    document.getElementById('t-action').textContent = p.utilAction || (p.isKeeper ? 'keeper' : '-');
-    if (p.utilScores) {
-      const s = p.utilScores;
-      document.getElementById('t-scores').textContent = `P:${s.pass.toFixed(2)} S:${s.shoot.toFixed(2)} D:${s.dribble.toFixed(2)} H:${s.hold.toFixed(2)} C:${s.clear.toFixed(2)}`;
-    } else {
-      document.getElementById('t-scores').textContent = '-';
-    }
-  } else {
-    document.getElementById('t-carrier').textContent = 'LOOSE BALL';
-    document.getElementById('t-action').textContent = '-';
-    document.getElementById('t-scores').textContent = '-';
-  }
+  // Intentionally skip DOM updates here for maximum frame-rate performance.
 }
+// Update the "VS MLS 2025 AVG" panel at low frequency (once/sec)
+function updateMLSPanel() {
+  const mins = Math.max(matchTime / 12, 1/90); // matchTime/12 => match minutes
+  const factor = 90 / mins;
+  if (DOM.tCmpRedGoal) DOM.tCmpRedGoal.textContent = (score[0] * factor).toFixed(2);
+  if (DOM.tCmpBlueGoal) DOM.tCmpBlueGoal.textContent = (score[1] * factor).toFixed(2);
+  if (DOM.tCmpRedShot) DOM.tCmpRedShot.textContent = (telem.red.shots * factor).toFixed(1);
+  if (DOM.tCmpBlueShot) DOM.tCmpBlueShot.textContent = (telem.blue.shots * factor).toFixed(1);
+  if (DOM.tCmpRedPass) DOM.tCmpRedPass.textContent = Math.round(telem.red.passes * factor);
+  if (DOM.tCmpBluePass) DOM.tCmpBluePass.textContent = Math.round(telem.blue.passes * factor);
+  if (DOM.tCmpRedTackle) DOM.tCmpRedTackle.textContent = Math.round(telem.red.tacklesWon * factor);
+  if (DOM.tCmpBlueTackle) DOM.tCmpBlueTackle.textContent = Math.round(telem.blue.tacklesWon * factor);
+}
+setInterval(updateMLSPanel, 1000);
 // --- Copy Telemetry to clipboard ---
 document.getElementById('btnCopyTelem').addEventListener('click', () => {
   const total = telem.red.possFrames + telem.blue.possFrames || 1;
@@ -676,6 +703,12 @@ document.getElementById('btnCopyTelem').addEventListener('click', () => {
   for (const ev of telem.events) {
     text += `${ev.time} ${ev.team} ${ev.action} ${ev.detail}\n`;
   }
+  // Per-player touches / shots summary
+  text += `\n=== PLAYER STATS ===\n`;
+  for (const p of allPlayers) {
+    const sideName = p.side === 1 ? 'RED' : 'BLUE';
+    text += `${sideName} ${p.role}: touches ${p.touches || 0} | shots ${p.shots || 0}\n`;
+  }
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById('btnCopyTelem');
     btn.textContent = '✅ Copied!';
@@ -685,6 +718,15 @@ document.getElementById('btnCopyTelem').addEventListener('click', () => {
     btn.textContent = '❌ Failed – copy manually';
     setTimeout(() => { btn.textContent = '📋 Copy Telemetry'; }, 2500);
   });
+// Track mouse world position for human boost targeting
+let mouseWorldX, mouseWorldY;
+canvas.addEventListener('mousemove', ev => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = ev.clientX - rect.left;
+  const sy = ev.clientY - rect.top;
+  const [mx, my] = screenToWorld(sx, sy);
+  mouseWorldX = mx; mouseWorldY = my;
+});
 });
 
 let freezeBlue = false; // press F to toggle
@@ -855,6 +897,18 @@ function getOffBallTarget(player, teammates, opponents, ballPos, hasPossession) 
       fx += (oppGoalX > ownGoalX ? 1 : -1) * runStrength;
     }
   }
+
+  // Small proximity nudge for deeper roles when the team has possession so
+  // defenders/DMs/CMs that are nearby can close into the play and earn touches.
+  // Weighted low to avoid everyone clustering — just a gentle pull toward the ball.
+  if (hasPossession) {
+    const dBall = Math.hypot(player.x - ballPos.x, player.y - ballPos.y);
+    if (dBall < 18 && ['CB','LB','RB','DM','CM'].includes(player.role)) {
+      const proxWeight = 0.18;
+      fx += (ballPos.x - player.x) * proxWeight;
+      fy += (ballPos.y - player.y) * proxWeight;
+    }
+  }
   // NOTE: no support-run-toward-carrier here. That caused everyone to cluster
   // within 12m of the ball, destroying passing lanes and killing build-up play.
 
@@ -958,6 +1012,9 @@ function updateKeeper(keeper, opponents, dt) {
     keeper.holdTime = 0;
     keeper.keeperHandled = true;
     ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
+        // Count keeper pickup as a touch
+        keeper.touches = (keeper.touches || 0) + 1;
+        telemEvent(keeper.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${keeper.role} SAVE/PICKUP`);
     const oppTeam = keeper.side === 1 ? teamB : teamA;
     for (const opp of oppTeam) {
       const od = dist(opp, keeper);
@@ -1094,9 +1151,9 @@ function getSpaceAhead(player, opponents, attackDir) {
 // Each action is scored 0–1, then the best is picked.
 
 const UTIL_WEIGHTS = {
-  pass:    0.90,  // increased: prioritize quick passes over other actions
-  shoot:   0.75,  // tuned: keep shots in penalty area only
-  dribble: 0.85,  // reduced: discourage holding/dribbling
+  pass:    0.85,  // slightly reduced to allow more shooting
+  shoot:   0.95,  // increased: encourage more attempts from forwards
+  dribble: 0.85,
   clear:   1.0,
 };
 
@@ -1107,8 +1164,8 @@ function getDecisionInterval(closestOppDist) {
   // Clock divisor is 12, so targets in real-seconds × 3 × (4/3) = × 4.
   if (closestOppDist < 3)  return 0.6;   // ~0.15 real-sec under heavy pressure
   if (closestOppDist < 6)  return 1.0;   // ~0.25 real-sec moderate pressure (tightened)
-  if (closestOppDist < 10) return 1.6;   // ~0.40 real-sec light pressure (tightened)
-  return 2.2;                             // ~0.55 real-sec lots of space (tightened from 3.2)
+  if (closestOppDist < 10) return 1.2;   // shorter decisions in light pressure
+  return 1.6;                             // default shorter interval to increase action frequency
 }
 
 function scorePass(player, teammates, opponents, attackDir) {
@@ -1186,8 +1243,9 @@ function scoreShoot(player, opponents, attackDir) {
 
   // Hold-time override: force a shot if stuck in a dangerous area too long
   const holdSec = (player.holdTime || 0) / 180;
-  if (distToGoal < 18 && holdSec > 0.4) s += 0.35;
-  if (distToGoal < 26 && holdSec > 1.2) s += 0.20;
+  // Aggressively encourage shots earlier for offensive roles
+  if (distToGoal < 18 && holdSec > 0.25) s += 0.35;
+  if (distToGoal < 26 && holdSec > 0.8) s += 0.20;
 
   // Slight random boost
   s += Math.random() * 0.06;
@@ -1360,6 +1418,25 @@ function updateOnBall(player, teammates, opponents, dt) {
   const passResult = scorePass(player, teammates, opponents, attackDir);
   const shootScore = scoreShoot(player, opponents, attackDir);
   const dribbleScore = scoreDribble(player, opponents, attackDir);
+  // Log shot-decision inputs for tuning/debugging
+  try {
+    const team = player.side === 1 ? 'RED' : 'BLUE';
+    const distToGoal = Math.round(Math.abs(player.x - (attackDir === 1 ? PITCH.w : 0)));
+    const angleToGoal = Math.round(Math.abs(player.y - PITCH.h/2));
+    const can = canShoot(player, opponents, attackDir);
+    // Low-probability long-shot override: allow rare attempts from distance
+    let overrideLongShot = false;
+    if (!can) {
+      if (distToGoal <= 60 && Math.random() < 0.02) { overrideLongShot = true; }
+    }
+    const canFinal = can || overrideLongShot;
+    // If overridden, give shootScore a small baseline so it can win the util decision
+    let loggedShootScore = shootScore;
+    if (overrideLongShot && loggedShootScore < 0.12) loggedShootScore = 0.12;
+    telemEvent(team, 'SHOT_DECISION', `${player.role} score=${loggedShootScore.toFixed(2)} dist=${distToGoal} angle=${angleToGoal} cooldown=${player.shotCooldown||0} canShoot=${canFinal}${overrideLongShot? ' override=long-shot' : ''}`);
+    // If override, ensure shootScore used for action selection is bumped
+    if (overrideLongShot && shootScore < 0.12) shootScore = 0.12;
+  } catch (e) {}
   const clearScore = scoreClear(player, opponents);
 
   const scores = {
@@ -1431,20 +1508,28 @@ function doPass(from, to) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const d = Math.hypot(dx, dy);
-  // Pass power: aim the ball past the target so it arrives with speed.
-  // power = d*1.5 means total theoretical travel = d*1.5/0.7 = 2.14d.
-  // Ball reaches the target position in ~0.9 real-sec regardless of distance.
-  const power = clamp(d * 1.5, 5, 35);
+  // Loft factor needs computing before it's used to soften lofted passes
+  const loftFactor = clamp((d - 12) / 22, 0, 1);
+  // Pass power: base power scaled by distance, with a stronger non-linear
+  // attenuation on high-loft passes to reduce extreme speeds.
+  let rawPower = d * PASS_BASE_MULT;
+  if (loftFactor > 0) {
+    const loftAtten = 1 - PASS_LOFT_ATTEN * Math.pow(loftFactor, PASS_LOFT_EXP);
+    rawPower *= loftAtten;
+  }
+  const power = clamp(rawPower, PASS_MIN_POWER, PASS_MAX_POWER);
   ball.vx = (dx / d) * power;
   ball.vy = (dy / d) * power;
+  // Count this as an intentional touch by the passer
+  from.touches = (from.touches || 0) + 1;
+  telemEvent(from.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${from.role} PASS to ${to.role}`);
   // Grace period: d*6 ticks ≈ actual travel time at 180 ticks/sec, plus 30% margin
   passGrace = Math.max(30, Math.ceil(d * 6));
-  // Lofted passes: flat under 12m, fully lofted over 34m.
   // vz=16 gives z_peak ≈6.4 units (see drawBall lift*5 → ~32px arc at 34m).
-  const loftFactor = clamp((d - 12) / 22, 0, 1);
   ball.vz = loftFactor * 16;
   const passType = loftFactor > 0.5 ? 'LOFT' : 'PASS';
-  telemEvent(from.side === 1 ? 'RED' : 'BLUE', passType, `${from.role}→${to.role} (${Math.round(d)}m)`);
+  const passSpeed = Math.hypot(ball.vx, ball.vy).toFixed(2);
+  telemEvent(from.side === 1 ? 'RED' : 'BLUE', passType, `${from.role}→${to.role} (${Math.round(d)}m) | ${passSpeed} m/s`);
   passTrail = {
     x1: from.x, y1: from.y, x2: to.x, y2: to.y,
     color: loftFactor > 0.5
@@ -1460,15 +1545,21 @@ function doShoot(player, goalX) {
   if (player.holdTime) { t.holdTotal += player.holdTime; t.holdCount++; }
   const distG = Math.round(Math.abs(player.x - goalX));
   // Shot power and spread tuned for realism
-  const power = 22 + Math.random() * 8;
   const goalCenterY = PITCH.h / 2;
-  const spread = clamp(3 + distG * 0.05, 3, 5);
-  const goalY = goalCenterY + (Math.random() - 0.5) * 2 * spread;
+  // Increase base shot power slightly and reduce randomness for better finishing
+  const power = SHOT_BASE * 1.10 + Math.random() * (SHOT_RAND * 0.8);
+  // Tighten spread so shots aim closer to goal center
+  const spread = clamp(2 + distG * 0.03, 2, 4);
+  const goalY = goalCenterY + (Math.random() - 0.5) * 2 * spread * 0.85;
   const dx = goalX - player.x;
   const dy = goalY - player.y;
-  const d = Math.hypot(dx, dy);
+  const d = Math.hypot(dx, dy) || 1;
   ball.vx = (dx / d) * power;
   ball.vy = (dy / d) * power;
+  // Shooter touched the ball
+  player.touches = (player.touches || 0) + 1;
+  player.shots = (player.shots || 0) + 1;
+  telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${player.role} SHOT from ${distG}m`);
   const shotSpeed = Math.hypot(ball.vx, ball.vy).toFixed(2);
   telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'SHOT', `${player.role} from ${distG}m | ${shotSpeed} m/s`);
   player.hasBall = false;
@@ -1636,6 +1727,10 @@ function getSecondClosestToBall(team) {
 }
 
 function updatePlayerAI(player, teammates, opponents, dt) {
+  // Decrement speed boost timer if active
+  if (player.speedBoostTimer > 0) player.speedBoostTimer--; 
+  else { player.speedBoostTimer = player.speedBoostTimer || 0; }
+  player.speedBoostMult = player.speedBoostMult || 1;
   const myTeam = player.side === 1 ? teamA : teamB;
   const oppTeam = player.side === 1 ? teamB : teamA;
   const possession = getTeamPossession(myTeam);
@@ -1681,7 +1776,8 @@ function updatePlayerAI(player, teammates, opponents, dt) {
     const allowChase = pressLevel >= 3 || !(playerMindset > 0.65 && ballBeyondPressLine);
     // Second+ chasers only engage if they're within range — avoids CBs abandoning
     // the back line to sprint 30m toward a ball an attacker is already chasing.
-    const rangeCap = chaserIdx === 0 ? Infinity : (chaserIdx === 1 ? 20 : 12);
+    // Widen the follow range slightly so deep roles can still join nearby play.
+    const rangeCap = chaserIdx === 0 ? Infinity : (chaserIdx === 1 ? 40 : 28);
     if (chaserIdx >= 0 && dist(player, ball) < rangeCap && !player.justPassed && allowChase) {
       player.aiState = 'chase';
       const dx = ball.x - player.x;
@@ -1689,17 +1785,29 @@ function updatePlayerAI(player, teammates, opponents, dt) {
       const d = Math.hypot(dx, dy);
       // Same ÷3 scaling as getRoleSpeed. First chaser sprints, supporters close at
       // reduced pace so they arrive as a second wave (not a stampede).
-      const speed = [2.8, 2.5, 2.3][chaserIdx] ?? 2.3;
+      let speed = [2.8, 2.5, 2.3][chaserIdx] ?? 2.3;
+      // Opportunistic random boost when chasing and ball is far
+      if (d > 6 && Math.random() < 0.12 && player.speedBoostTimer <= 0) {
+        const proposed = 1.2 + Math.random() * 0.3; // 1.2–1.5x
+        player.speedBoostMult = Math.min(BOOST_MAX_MULT, proposed);
+        const proposedT = 60 + Math.floor(Math.random() * 120);
+        player.speedBoostTimer = Math.min(BOOST_MAX_TIME, proposedT);
+        telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BOOST', `${player.role} x${player.speedBoostMult.toFixed(2)} for ${player.speedBoostTimer}f`);
+      }
+      if (player.speedBoostTimer > 0) speed *= player.speedBoostMult;
       if (d > 0.5) {
         smoothVelocity(player, (dx / d) * speed, (dy / d) * speed, 0.25);
       }
       if (d < 1.5 && !ball.owner && !(ball.shotInFlight > 0)) {
-        ball.owner = player;
-        player.hasBall = true;
-        player.holdTime = 0;
-        player.intention = null;
-        player.nextDecisionTime = 0;
-        player.utilAction = null;
+          ball.owner = player;
+          player.hasBall = true;
+          player.holdTime = 0;
+          player.intention = null;
+          player.nextDecisionTime = 0;
+          player.utilAction = null;
+          // Count receiver pickup
+          player.touches = (player.touches || 0) + 1;
+          telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${player.role} RECEIVED`);
       }
       return;
     }
@@ -1722,7 +1830,17 @@ function updatePlayerAI(player, teammates, opponents, dt) {
     const bd = Math.hypot(bdx, bdy);
     if (bd > 0.3) {
       // ÷3 scaling: receivers sprint slightly faster than chasers (3.3 m/s raw).
-      smoothVelocity(player, (bdx / bd) * 3.3, (bdy / bd) * 3.3, 0.35);
+      let rSpeed = 3.3;
+      // Give receivers a chance for a short burst if ball is far
+      if (bd > 8 && Math.random() < 0.08 && player.speedBoostTimer <= 0) {
+        const proposed = 1.15 + Math.random() * 0.25; // 1.15–1.4x
+        player.speedBoostMult = Math.min(BOOST_MAX_MULT, proposed);
+        const proposedT = 40 + Math.floor(Math.random() * 80);
+        player.speedBoostTimer = Math.min(BOOST_MAX_TIME, proposedT);
+        telemEvent(player.side === 1 ? 'RED' : 'BLUE', 'BOOST', `${player.role} x${player.speedBoostMult.toFixed(2)} for ${player.speedBoostTimer}f`);
+      }
+      if (player.speedBoostTimer > 0) rSpeed *= player.speedBoostMult;
+      smoothVelocity(player, (bdx / bd) * rSpeed, (bdy / bd) * rSpeed, 0.35);
     }
     player.aiState = 'receive';
     return;
@@ -1754,15 +1872,16 @@ function updatePlayerAI(player, teammates, opponents, dt) {
   const dx = tx - player.x;
   const dy = ty - player.y;
   const d = Math.hypot(dx, dy);
-  if (d > 0.5) {
-    const urgency = clamp(normalizedClamp(d, 1, 12), 0.4, 1);
-    const topSpeed = getRoleSpeed(player.role);
-    // Defenders sprint harder without ball; attackers similar but slightly less
-    const maxSpeed = possession ? topSpeed * 0.92 : topSpeed;
-    smoothVelocity(player, (dx / d) * maxSpeed * urgency, (dy / d) * maxSpeed * urgency, 0.2);
-  } else {
-    smoothVelocity(player, 0, 0, 0.15);
-  }
+    if (d > 0.5) {
+      const urgency = clamp(normalizedClamp(d, 1, 12), 0.4, 1);
+      const topSpeed = getRoleSpeed(player.role);
+      // Defenders sprint harder without ball; attackers similar but slightly less
+      let maxSpeed = possession ? topSpeed * 0.92 : topSpeed;
+      if (player.speedBoostTimer > 0) maxSpeed *= player.speedBoostMult;
+      smoothVelocity(player, (dx / d) * maxSpeed * urgency, (dy / d) * maxSpeed * urgency, 0.2);
+    } else {
+      smoothVelocity(player, 0, 0, 0.15);
+    }
 }
 
 // ========== Tackles & Intercepts ==========
@@ -1823,6 +1942,9 @@ function checkIntercepts() {
       passTargetPlayer.utilAction = null;
       ball.vx = 0; ball.vy = 0;
       passGrace = 0;
+      // Count as a touch for the intended receiver
+      passTargetPlayer.touches = (passTargetPlayer.touches || 0) + 1;
+      telemEvent(passTargetPlayer.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${passTargetPlayer.role} RECEIVED`);
       passTargetPlayer = null;
       return;
     }
@@ -1848,6 +1970,9 @@ function checkIntercepts() {
       p.utilAction = null;
       ball.vx = 0; ball.vy = 0;
       passGrace = 0;
+      // Count as a touch for the player who picked up the loose ball
+      p.touches = (p.touches || 0) + 1;
+      telemEvent(p.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${p.role} PICKUP`);
       passTargetPlayer = null;
       return;
     }
@@ -1882,6 +2007,9 @@ function awardCornerKick(keeperSide) {
     ball.owner = closest;
     closest.hasBall = true;
     closest.holdTime = 0;
+    // Count touch for player awarded the corner kick
+    closest.touches = (closest.touches || 0) + 1;
+    telemEvent(closest.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${closest.role} CORNER_AWARDED`);
   }
   passGrace = 0;
   passTargetPlayer = null;
@@ -1901,11 +2029,12 @@ function checkGoal() {
     // At 3m off-line (near post) keeper has a ~35% chance — makes near-post shots dangerous.
     // Save table tuned for ~10% conversion (MLS avg).
     // Keeper within 1m = near-certain save; 1-3m = decent chance; >5m = rare reflex save.
-    const saveChance = keeperDist < 1.0 ? 0.95
-                     : keeperDist < 2.0 ? 0.88
-                     : keeperDist < 3.5 ? 0.75
-                     : keeperDist < 5.5 ? 0.55
-                     : 0.22;
+    // Slightly reduce keeper effectiveness for more realistic scoring
+    const saveChance = keeperDist < 1.0 ? 0.87
+             : keeperDist < 2.0 ? 0.80
+             : keeperDist < 3.5 ? 0.67
+             : keeperDist < 5.5 ? 0.47
+             : 0.14;
     if (Math.random() < saveChance) {
       ball.shotInFlight = 0;
       if (keeper) {
@@ -1913,21 +2042,25 @@ function checkGoal() {
         ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
         ball.owner = keeper; keeper.hasBall = true; keeper.holdTime = 0;
         keeper.keeperHandled = true;
+        keeper.touches = (keeper.touches || 0) + 1;
+        telemEvent(keeper.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${keeper.role} SAVE`);
       }
       return;
     }
     score[1]++;
+    signalGoal('BLUE');
     telemEvent('BLUE', 'GOAL', `Score! ${score[0]}-${score[1]}`);
     updateScoreboard();
     doKickOff(teamA);
   } else if (ball.x >= PITCH.w && ball.y > goalYMin && ball.y < goalYMax) {
     const keeper = teamB.find(p => p.isKeeper);
     const keeperDist = keeper ? Math.abs(keeper.y - ball.y) : 99;
-    const saveChance = keeperDist < 1.0 ? 0.95
-                     : keeperDist < 2.0 ? 0.88
-                     : keeperDist < 3.5 ? 0.75
-                     : keeperDist < 5.5 ? 0.55
-                     : 0.22;
+    // Slightly reduce keeper effectiveness for more realistic scoring
+    const saveChance = keeperDist < 1.0 ? 0.87
+             : keeperDist < 2.0 ? 0.80
+             : keeperDist < 3.5 ? 0.67
+             : keeperDist < 5.5 ? 0.47
+             : 0.14;
     if (Math.random() < saveChance) {
       ball.shotInFlight = 0;
       if (keeper) {
@@ -1935,10 +2068,13 @@ function checkGoal() {
         ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.z = 0;
         ball.owner = keeper; keeper.hasBall = true; keeper.holdTime = 0;
         keeper.keeperHandled = true;
+        keeper.touches = (keeper.touches || 0) + 1;
+        telemEvent(keeper.side === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${keeper.role} SAVE`);
       }
       return;
     }
     score[0]++;
+    signalGoal('RED');
     telemEvent('RED', 'GOAL', `Score! ${score[0]}-${score[1]}`);
     updateScoreboard();
     doKickOff(teamB);
@@ -1973,6 +2109,8 @@ function resetBallInBounds() {
       keeper.hasBall = true;
       keeper.holdTime = 0;
       keeper.keeperHandled = true;
+      keeper.touches = (keeper.touches || 0) + 1;
+      telemEvent(defendingSide === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${keeper.role} GOALKICK`);
     }
     telemEvent(defendingSide === 1 ? 'RED' : 'BLUE', 'GOAL KICK', '');
     return;
@@ -1996,6 +2134,8 @@ function resetBallInBounds() {
       ball.owner = closest;
       closest.hasBall = true;
       closest.holdTime = 0;
+      closest.touches = (closest.touches || 0) + 1;
+      telemEvent(throwSide === 1 ? 'RED' : 'BLUE', 'BALL_TOUCH', `${closest.role} THROW-IN`);
     }
     telemEvent(throwSide === 1 ? 'RED' : 'BLUE', 'THROW-IN', '');
     return;
@@ -2050,6 +2190,12 @@ function tick(dt) {
   }
 
   // Move players
+  // Apply global player speed multiplier (for tuning responsiveness)
+  const PLAYER_SPEED_MULT = 1.15;
+  for (const p of allPlayers) {
+    p.vx *= PLAYER_SPEED_MULT;
+    p.vy *= PLAYER_SPEED_MULT;
+  }
   for (const p of allPlayers) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -2063,15 +2209,33 @@ function tick(dt) {
     ball.y = ball.owner.y;
     ball.z = 0;
   } else {
-    ball.x += ball.vx * dt;
-    ball.y += ball.vy * dt;
-    ball.z += ball.vz * dt;
-    ball.vz -= 20 * dt; // gravity
-    if (ball.z < 0) { ball.z = 0; ball.vz = -ball.vz * 0.3; }
-    // Friction — calibrated so passes travel proper distances
-    // PSL: linear drag 0.58 on 65.6u field. Scaled to 105m: ~0.7
-    ball.vx *= (1 - 0.7 * dt);
-    ball.vy *= (1 - 0.7 * dt);
+    // Sub-step ball integration to avoid tunneling at high speeds.
+    const dx = ball.vx * dt;
+    const dy = ball.vy * dt;
+    const dist = Math.hypot(dx, dy);
+    const MAX_STEP = 1.0; // meters per sub-step
+    const steps = Math.min(8, Math.max(1, Math.ceil(dist / MAX_STEP)));
+    const subDt = dt / steps;
+    for (let s = 0; s < steps; s++) {
+      ball.x += ball.vx * subDt;
+      ball.y += ball.vy * subDt;
+      ball.z += ball.vz * subDt;
+      ball.vz -= 20 * subDt; // gravity
+      if (ball.z < 0) { ball.z = 0; ball.vz = -ball.vz * 0.3; }
+      // Apply friction per sub-step
+      ball.vx *= (1 - 0.7 * subDt);
+      ball.vy *= (1 - 0.7 * subDt);
+      // Check for tackles/intercepts/goals during sub-steps so the ball
+      // can't skip over a pickup between frames. If somebody picks it up
+      // or a goal is detected, stop further sub-steps.
+      checkTackles();
+      checkIntercepts();
+      checkGoal();
+      if (ball.owner) {
+        ball.vx = 0; ball.vy = 0; ball.vz = 0;
+        break;
+      }
+    }
     // End of shot flight: once the ball slows to a loose-ball speed, opponents
     // can pick it up again. 4 m/s is below a rebound/deflection speed.
     if (ball.shotInFlight > 0 && Math.hypot(ball.vx, ball.vy) < 4) {
@@ -2091,6 +2255,8 @@ function tick(dt) {
 
 // Load field background image — all markings are baked into the image
 const fieldImage = new Image();
+// Allow cross-origin loading when served via HTTP so canvas.toDataURL is not tainted
+fieldImage.crossOrigin = 'anonymous';
 fieldImage.src = 'Copilot_20260407_161211.png';
 
 function drawPitch() {
@@ -2141,10 +2307,14 @@ function drawPlayer(p) {
   const [sx, sy] = toScreen(p.x, p.y);
 
   // Shadow (oval, PSL style)
-  ctx.fillStyle = 'rgba(26,92,26,0.45)';
+  // Use multiply composite so shadow darkens pitch (stencil-style)
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
   ctx.ellipse(sx, sy + 3, 7, 2.5, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 
   // Determine sprite & animation frame
   const moving = Math.hypot(p.vx, p.vy) > 1;
@@ -2176,30 +2346,11 @@ function drawPlayer(p) {
   ctx.transform(1, 0, -shearPerPx, 1, 0, 0);
   drawPSLSprite(0, 0, pattern, teamCol, facing, 1);
 
-  // Role label (in skewed space so it sits above the sprite naturally)
-  ctx.fillStyle = 'rgba(255,255,200,0.85)';
-  ctx.font = 'bold 8px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(p.role, 0, 12);
   ctx.restore();
 }
 
 function drawBall() {
-  // Draw pass trail
-  if (passTrail && passTrail.life > 0) {
-    const [sx1, sy1] = toScreen(passTrail.x1, passTrail.y1);
-    const [sx2, sy2] = toScreen(passTrail.x2, passTrail.y2);
-    ctx.strokeStyle = passTrail.color;
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = passTrail.life / 45;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    ctx.moveTo(sx1, sy1);
-    ctx.lineTo(sx2, sy2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
-  }
+  // (passTrail rendering moved to debug overlay)
 
   const [sx, sy] = toScreen(ball.x, ball.y);
   const lift = ball.z * 5; // 5px per z-unit: clears get ~3px, lofted passes ~32px
@@ -2207,32 +2358,77 @@ function drawBall() {
   // Shadow grows fainter and spreads as ball rises
   const shadowAlpha = Math.max(0.05, 0.35 - ball.z * 0.04);
   const shadowW = 4 + ball.z * 0.3;
+  // Ball shadow uses multiply so it stamps onto the pitch
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
   ctx.fillStyle = `rgba(0,0,0,${shadowAlpha})`;
   ctx.beginPath();
   ctx.ellipse(sx, sy + 2, shadowW, shadowW * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 
-  // Ball
+  // Ball (soccer-style): draw on top and add halo while in-flight so it never vanishes
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
   const r = 3 + ball.z * 0.3;
+
+  // Halo for visibility when ball is moving fast or airborne
+  const speed = Math.hypot(ball.vx, ball.vy);
+  if (!ball.owner && speed > 3) {
+    ctx.fillStyle = 'rgba(255,220,120,0.18)';
+    ctx.beginPath();
+    ctx.arc(sx, sy - lift, r * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // White core
   ctx.fillStyle = '#fff';
   ctx.beginPath();
   ctx.arc(sx, sy - lift, r, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = 0.5;
+
+  // Thin outline
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 0.6;
   ctx.stroke();
 
-  // Black pentagon (soccer ball look)
-  ctx.fillStyle = '#222';
+  // Panel spots and seams (subtle) — keep them darker than outline
+  const spots = 5;
+  const angles = [-90, -18, 54, 126, 198].map(a => a * Math.PI / 180);
+  const spotR = r * 0.28;
+  ctx.fillStyle = '#111';
+  for (let i = 0; i < spots; i++) {
+    const ax = sx + Math.cos(angles[i]) * r * 0.5;
+    const ay = sy - lift + Math.sin(angles[i]) * r * 0.5;
+    ctx.beginPath();
+    ctx.arc(ax, ay, spotR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = 'rgba(30,30,30,0.85)';
+  ctx.lineWidth = 0.7;
+  for (let i = 0; i < spots; i++) {
+    const a1 = angles[i];
+    const a2 = angles[(i + 1) % spots];
+    const x1 = sx + Math.cos(a1) * r * 0.5;
+    const y1 = sy - lift + Math.sin(a1) * r * 0.5;
+    const x2 = sx + Math.cos(a2) * r * 0.5;
+    const y2 = sy - lift + Math.sin(a2) * r * 0.5;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  // Specular highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
   ctx.beginPath();
-  ctx.arc(sx - 0.5, sy - lift - 0.5, r * 0.4, 0, Math.PI * 2);
+  ctx.ellipse(sx - r * 0.35, sy - lift - r * 0.35, r * 0.26, r * 0.11, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 }
 
 function drawHUD() {
   const mins = Math.floor(matchTime / 12) % 90; // 12 matchTime-units = 1 match minute (3×BASE_TICKS × DT 1/60 × 60fps = 3/sec → /12 = 4 real-sec/match-min)
   const secs = Math.floor((matchTime / 12 * 60) % 60);
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = '#000';
   ctx.fillRect(W / 2 - 36, 2, 72, 16);
   ctx.fillStyle = '#fff';
   ctx.font = '11px monospace';
@@ -2243,9 +2439,21 @@ function drawHUD() {
 function drawDebugOverlay() {
   if (!showDebug) return;
 
-  // Draw target positions and movement vectors
+  // Pass trail indicator (visible only in debug overlay)
+  if (passTrail && passTrail.life > 0) {
+    const [sx1, sy1] = toScreen(passTrail.x1, passTrail.y1);
+    const [sx2, sy2] = toScreen(passTrail.x2, passTrail.y2);
+    ctx.strokeStyle = passTrail.color || 'rgba(255,255,0,0.9)';
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = (passTrail.life || 45) / 45;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+
+  // Draw target positions and movement vectors; show role + position labels for every player
   for (const p of allPlayers) {
-    if (p.isKeeper) continue;
     const [sx, sy] = toScreen(p.x, p.y);
 
     // Target position marker
@@ -2261,15 +2469,28 @@ function drawDebugOverlay() {
       ctx.beginPath(); ctx.moveTo(tx, ty - 3); ctx.lineTo(tx, ty + 3); ctx.stroke();
     }
 
-    // AI state label + utility action
+    // Role label (always shown)
+    ctx.fillStyle = p.side === 1 ? 'rgba(255,180,180,0.95)' : 'rgba(160,180,255,0.98)';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.role, sx, sy - 20);
+
+    // AI state label + utility action (if present)
     if (p.aiState) {
       ctx.fillStyle = 'rgba(255,255,0,0.8)';
       ctx.font = '7px monospace';
       ctx.textAlign = 'center';
       let label = p.aiState;
       if (p.hasBall && p.utilAction) label = p.utilAction.toUpperCase();
-      ctx.fillText(label, sx, sy - 16);
+      ctx.fillText(label, sx, sy - 10);
     }
+
+    // Player position label (world coords in meters), shown underneath the role
+    ctx.fillStyle = p.side === 1 ? 'rgba(255,200,200,0.9)' : 'rgba(180,200,255,0.95)';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    const posText = `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+    ctx.fillText(posText, sx, sy + 12);
   }
 
   // Draw debug lines (defensive tracking)
@@ -2330,6 +2551,20 @@ function drawFormationShape() {
   }
 }
 
+// Rounded rectangle helper for HUD banners
+function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+  if (typeof r === 'undefined') r = 6;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
+}
+
 function render() {
   ctx.clearRect(0, 0, W, H);
   debugLines = [];
@@ -2345,6 +2580,43 @@ function render() {
   drawBall();
   drawDebugOverlay();
   drawHUD();
+
+  // Draw score banner above the field (white area at top)
+  try {
+    const pad = 8;
+    const bw = 220, bh = 34;
+    const bx = (W - bw) / 2, by = 6;
+    // background
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    roundRect(ctx, bx, by, bw, bh, 6, true, false);
+    // score text
+    ctx.fillStyle = '#111';
+    ctx.font = '18px bold sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`RED ${score[0]}  —  BLUE ${score[1]}`, W/2, by + bh/2 + 6);
+  } catch (e) { /* defensive: canvas may not be ready */ }
+
+  // GOAL overlay
+  if (goalFlash.timer > 0) {
+    const t = goalFlash.timer;
+    const alpha = Math.min(1, t / 60);
+    const scale = 1 + (Math.sin((180 - t) / 8) * 0.08) + (alpha * 0.12);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(W/2, H/2 - 20);
+    ctx.scale(scale, scale);
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.font = '96px bold sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('GOAL', 4, 4);
+    // main text (team color if available)
+    ctx.fillStyle = goalFlash.team === 'RED' ? '#ff3333' : goalFlash.team === 'BLUE' ? '#3366ff' : '#fff';
+    ctx.fillText('GOAL', 0, 0 + 4);
+    ctx.restore();
+    goalFlash.timer = Math.max(0, goalFlash.timer - 1);
+    if (goalFlash.timer === 0) goalFlash.team = null;
+  }
 }
 
 // ============================================================
@@ -2393,6 +2665,25 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     paused = !paused;
     document.getElementById('btnPause').textContent = paused ? '▶ Play' : '⏸ Pause';
+  }
+  // Human boost key: Shift (or 'B') gives nearest player a short burst
+  if (e.key === 'Shift' || e.key === 'b' || e.key === 'B') {
+    // Prefer mouse position if we have it, otherwise fall back to ball
+    const refX = (typeof mouseWorldX !== 'undefined') ? mouseWorldX : ball.x;
+    const refY = (typeof mouseWorldY !== 'undefined') ? mouseWorldY : ball.y;
+    let best = null, bestD = Infinity;
+    const allTeams = teamA.concat(teamB);
+    for (const p of allTeams) {
+      const d = Math.hypot(p.x - refX, p.y - refY);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    if (best) {
+      const proposed = 1.25 + Math.random() * 0.35; // 1.25–1.6x
+      best.speedBoostMult = Math.min(BOOST_MAX_MULT, proposed);
+      const proposedT = 80 + Math.floor(Math.random() * 120);
+      best.speedBoostTimer = Math.min(BOOST_MAX_TIME, proposedT);
+      telemEvent(best.side === 1 ? 'RED' : 'BLUE', 'BOOST', `${best.role} x${best.speedBoostMult.toFixed(2)} for ${best.speedBoostTimer}f`);
+    }
   }
 });
 

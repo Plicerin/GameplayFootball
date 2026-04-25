@@ -1,0 +1,9 @@
+.tools/
+ball_speeds.log
+prototype/headless_capture*.png
+prototype/headless_page.html
+prototype/index.html.bak.*
+prototype/_script_extract*.js
+prototype/helios-base/
+prototype/tools/
+src/robocup_ai/

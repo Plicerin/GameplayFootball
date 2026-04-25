@@ -938,7 +938,10 @@ void ElizaController::GetOnTheBallCommands(std::vector<PlayerCommand> &commandQu
     if (odds3 > odds) { odds = odds3; y =  3.5f; }
 
     odds = pow(odds, 0.5f);
-    if (Verbose()) printf("ODDS: %f\n", odds);
+    // bias shot-taking odds by the player's technical finishing skill
+    float shotSkillFactor = 0.6f + CastPlayer()->GetStat("technical_shot") * 0.4f;
+    odds *= shotSkillFactor;
+    if (Verbose()) printf("ODDS: %f (skillfactor: %f)\n", odds, shotSkillFactor);
 
     if (odds + random(0.0f, 0.5f) > 0.5f) {
       PlayerCommand command;
@@ -949,7 +952,11 @@ void ElizaController::GetOnTheBallCommands(std::vector<PlayerCommand> &commandQu
       command.touchInfo.desiredDirection = (Vector3((pitchHalfW + 1.0f) * -team->GetSide(), y + random(-1.0f + player->GetStat("technical_shot"), 1.0f - player->GetStat("technical_shot")), 0) - (CastPlayer()->GetPosition() + CastPlayer()->GetMovement() * 0.2f)).GetNormalized(Vector3(-team->GetSide(), 0, 0));
       command.touchInfo.desiredDirection = (command.touchInfo.desiredDirection * 0.7f + -CastPlayer()->GetDirectionVec() * (CastPlayer()->GetFloatVelocity() / sprintVelocity) * 0.3f).GetNormalized();
       command.touchInfo.autoDirectionBias = 1.0f;
-      command.touchInfo.desiredPower = random(0.7f * (0.6f + goalDist * 0.4f), 1.0f * (0.6f + goalDist * 0.4f));
+      // bias shot power slightly by technical_shot so better finishers choose power that improves conversion
+      float baseMin = 0.7f * (0.6f + goalDist * 0.4f);
+      float baseMax = 1.0f * (0.6f + goalDist * 0.4f);
+      float powerSkillBias = 0.9f + CastPlayer()->GetStat("technical_shot") * 0.2f;
+      command.touchInfo.desiredPower = random(baseMin * powerSkillBias, baseMax * powerSkillBias);
       commandQueue.push_back(command);
     }
   }
